@@ -1,24 +1,18 @@
 version: 1
-frontend:
-  phases:
-    preBuild:
-      commands:
-        - echo "=== Starting preBuild ==="
-        - pwd
-        - ls -la
-        - (cd FINALS-main && npm install --legacy-peer-deps --loglevel=error)
-    build:
-      commands:
-        - echo "=== Starting build ==="
-        - pwd
-        - (cd FINALS-main && npm run build)
-        - echo "=== Build complete, checking output ==="
-        - ls -la FINALS-main/build/
-        - cat FINALS-main/build/index.html | head -20
-  artifacts:
-    baseDirectory: FINALS-main/build
-    files:
-      - '*/'
-  cache:
-    paths:
-      - FINALS-main/node_modules/**/*
+applications:
+  - appRoot: FINALS-main
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm install --legacy-peer-deps
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: build
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
