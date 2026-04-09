@@ -1,0 +1,447 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { RECIPES } from '../data/recipes';
+import { supabase } from '../supabaseClient';
+import { toast } from 'react-hot-toast';
+
+const RecipeTemplate = () => {
+    const { recipeId } = useParams(); 
+    const navigate = useNavigate();
+    const [recipe, setRecipe] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // --- FAVORITES STATE ---
+    const [isSaved, setIsSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [user, setUser] = useState(null);
+
+    // --- STATE ---
+    const [currentStep, setCurrentStep] = useState(0); 
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [servings, setServings] = useState(4); 
+    
+    // --- INTERACTIVE CHECKLIST STATE ---
+    const [checkedIngredients, setCheckedIngredients] = useState(new Set());
+
+    // Get current user and fetch recipe
+    useEffect(() => {
+        const init = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+
+            // 1. Try local RECIPES data first
+            const localRecipe = RECIPES.find(r => String(r.id) === recipeId);
+            if (localRecipe) {
+                setRecipe(localRecipe);
+                setLoading(false);
+                return;
+            }
+
+            // 2. If not local, fetch from Supabase
+            try {
+                const { data, error } = await supabase
+                    .from('recipes')
+                    .select('*')
+                    .eq('id', recipeId)
+                    .single();
+
+                if (error) throw error;
+                if (data) setRecipe(data);
+            } catch (err) {
+                console.error("Error fetching recipe:", err);
+                toast.error("Could not load recipe details.");
+            } finally {
+                setLoading(false);
+            }
+        };
+        init();
+    }, [recipeId]);
+
+    // Check if recipe is saved
+    useEffect(() => {
+        if (user && recipe) {
+            checkIfSaved();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, recipe]);
+
+    const checkIfSaved = async () => {
+        const { data, error } = await supabase
+            .from('saved_recipes')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('recipe_id', recipe.id)
+            .single();
+
+        if (!error && data) {
+            setIsSaved(true);
+        }
+    };
+
+   const handleSaveRecipe = async () => {
+    if (!user) {
+        toast.error('Please log in to save recipes');
+        navigate('/login');
+        return;
+    }
+
+    if (!recipe?.id) {
+        toast.error('Error: Recipe ID not found');
+        return;
+    }
+
+    setSaving(true);
+    
+    if (isSaved) {
+        const { error } = await supabase
+            .from('saved_recipes')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('recipe_id', recipe.id);
+        
+        if (!error) {
+            setIsSaved(false);
+            toast.success('Recipe removed from favorites!');
+        } else {
+            toast.error('Error removing from favorites: ' + error.message);
+        }
+    } else {
+        const { error } = await supabase
+            .from('saved_recipes')
+            .insert([{ user_id: user.id, recipe_id: recipe.id }]);
+        
+        if (!error) {
+            setIsSaved(true);
+            toast.success('Recipe saved to favorites! ⭐');
+        } else {
+            toast.error('Error saving to favorites: ' + error.message);
+        }
+    }
+    setSaving(false);
+};
+
+    const handleIncrease = () => setServings(prev => prev + 1);
+    const handleDecrease = () => setServings(prev => (prev > 1 ? prev - 1 : 1)); 
+    
+    const multiplier = servings / 4; 
+
+    // --- SMART SCALER ---
+    const scaleIngredient = (ingredientText) => {
+        const mainRegex = /^(\d+\/\d+|\d*\.?\d+)\s+(.*)/;
+        const mainMatch = ingredientText.trim().match(mainRegex);
+
+        if (mainMatch) {
+            const performMath = (numStr) => {
+                let numValue = 0;
+                if (numStr.includes('/')) {
+                    const [nom, den] = numStr.split('/');
+                    numValue = parseFloat(nom) / parseFloat(den);
+                } else {
+                    numValue = parseFloat(numStr);
+                }
+
+                const scaled = numValue * multiplier;
+                let formattedNum = Number.isInteger(scaled) ? scaled : parseFloat(scaled.toFixed(2));
+                
+                if (formattedNum === 0.5) formattedNum = "1/2";
+                else if (formattedNum === 0.25) formattedNum = "1/4";
+                else if (formattedNum === 0.75) formattedNum = "3/4";
+                else if (formattedNum === 1.5) formattedNum = "1 1/2";
+                else if (formattedNum === 0.13 || formattedNum === 0.12) formattedNum = "1/8";
+                
+                return formattedNum;
+            };
+
+            const scaledMainNumber = performMath(mainMatch[1]);
+            let restOfIngredient = mainMatch[2];
+
+            const parenthesesRegex = new RegExp("\\(([\\d/.]+)\\s+([^)]+)\\)");
+            const parenMatch = restOfIngredient.match(parenthesesRegex);
+
+            if (parenMatch) {
+                const scaledParenNumber = performMath(parenMatch[1]);
+                let unit = parenMatch[2];
+                
+                if (scaledParenNumber > 1 && !unit.endsWith('s') && !unit.includes('tbsp') && !unit.includes('tsp')) {
+                    unit += "s";
+                }
+                restOfIngredient = restOfIngredient.replace(parenthesesRegex, `(${scaledParenNumber} ${unit})`);
+            }
+            return `${scaledMainNumber} ${restOfIngredient}`;
+        }
+        return ingredientText; 
+    };
+
+    // --- BOLD MEASUREMENTS FORMATTER ---
+    const renderIngredientText = (text) => {
+        const match = text.match(new RegExp("^([\\d/.]+\\s+[a-zA-Z]+)\\s+(.*)"));
+        if (match) {
+            return <><span className="font-extrabold text-gray-900">{match[1]}</span> {match[2]}</>;
+        }
+        return text; 
+    };
+
+    // --- TOGGLE CHECKLIST ---
+    const toggleIngredient = (index) => {
+        const newChecked = new Set(checkedIngredients);
+        if (newChecked.has(index)) newChecked.delete(index);
+        else newChecked.add(index);
+        setCheckedIngredients(newChecked);
+    };
+
+    useEffect(() => {
+        return () => window.speechSynthesis.cancel();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center p-20 text-gray-400">
+                <div className="animate-spin text-[3rem] mb-4">🍳</div>
+                <p className="font-semibold">Loading recipe details...</p>
+            </div>
+        );
+    }
+
+    if (!recipe) {
+        return (
+            <div className="text-center p-20 text-black">
+                <div className="text-[4rem] mb-4">🔍</div>
+                <h2 className="m-0">Oops! Recipe not found.</h2>
+                <p className="text-gray-500 mt-2">The recipe you're looking for might have been removed or moved.</p>
+                <button 
+                    onClick={() => navigate('/marketplace')} 
+                    className="cursor-pointer font-bold text-orange-600 bg-orange-50 px-6 py-2.5 rounded-xl border border-orange-200 mt-6 transition-all hover:bg-orange-100"
+                >
+                    Back to Marketplace
+                </button>
+            </div>
+        );
+    }
+
+    const allCookingSteps = recipe.steps || [];
+    const allMarinatingSteps = recipe.marinating_steps || [];
+    const totalStepsCount = allCookingSteps.length + allMarinatingSteps.length;
+
+    const playStep = (stepIndex) => {
+        window.speechSynthesis.cancel(); 
+        setIsPlaying(true);
+        setIsPaused(false);
+        setCurrentStep(stepIndex); 
+
+        const msg = new SpeechSynthesisUtterance();
+        // Handle combined steps for audio
+        const isMarinatingStep = stepIndex < allMarinatingSteps.length;
+        const textToSpeak = isMarinatingStep 
+            ? `Marinating Step ${stepIndex + 1}: ${allMarinatingSteps[stepIndex]}`
+            : `Cooking Step ${stepIndex - allMarinatingSteps.length + 1}: ${allCookingSteps[stepIndex - allMarinatingSteps.length]}`;
+        
+        msg.text = textToSpeak;
+        msg.onend = () => setIsPlaying(false);
+        window.speechSynthesis.speak(msg);
+    };
+
+    const handleNext = () => currentStep < totalStepsCount - 1 && playStep(currentStep + 1);
+    const handlePrev = () => currentStep > 0 && playStep(currentStep - 1);
+    const togglePlayPause = () => {
+        if (isPlaying && !isPaused) {
+            window.speechSynthesis.pause();
+            setIsPaused(true);
+        } else if (isPlaying && isPaused) {
+            window.speechSynthesis.resume();
+            setIsPaused(false);
+        } else {
+            playStep(currentStep); 
+        }
+    };
+    const stopAudio = () => {
+        window.speechSynthesis.cancel();
+        setIsPlaying(false);
+        setIsPaused(false);
+        setCurrentStep(0); 
+    };
+
+    return (
+        <div className="max-w-[1200px] mx-auto bg-gray-50">
+            {/* Hero */}
+            <div className="relative h-[500px] w-full overflow-hidden rounded-b-[30px] max-[960px]:h-[400px] max-[960px]:rounded-none">
+                <img src={recipe.image} alt={recipe.title} className="absolute inset-0 w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/10 to-black/85 z-[1]"></div>
+                <div className="absolute top-8 left-[5%] right-[5%] flex justify-between items-center z-10">
+                    <button onClick={() => navigate(-1)} className="bg-white/20 backdrop-blur-[5px] text-white border border-white/30 w-[45px] h-[45px] rounded-full text-2xl cursor-pointer flex items-center justify-center transition-colors duration-200 hover:bg-white/40">←</button>
+                    <div className="bg-white px-4 py-2 rounded-[20px] text-[0.9rem] font-bold text-gray-900 flex items-center gap-2 shadow-[0_4px_10px_rgba(0,0,0,0.1)]"><span>👨‍🍳</span> SavorSense Recipe</div>
+                </div>
+                <div className="absolute bottom-12 left-[5%] right-[5%] z-10 text-white">
+                    <h1 className="text-[3.5rem] font-black mb-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)] max-[960px]:text-[2.5rem]">{recipe.title}</h1>
+                    <p className="text-[1.15rem] max-w-[700px] mb-6 leading-relaxed text-gray-100 drop-shadow-[0_2px_5px_rgba(0,0,0,0.5)]">{recipe.description}</p>
+                    <div className="flex gap-4 flex-wrap">
+                        <span className="bg-white/25 backdrop-blur-sm border border-white/20 px-5 py-2.5 rounded-[30px] text-[0.95rem] font-semibold">⏱️ Cooking: {recipe.time}</span>
+                        {recipe.marinating_time && (
+                            <span className="bg-white/25 backdrop-blur-sm border border-white/20 px-5 py-2.5 rounded-[30px] text-[0.95rem] font-semibold">🧂 Marinating: {recipe.marinating_time}</span>
+                        )}
+                        <span className="bg-white/25 backdrop-blur-sm border border-white/20 px-5 py-2.5 rounded-[30px] text-[0.95rem] font-semibold">🔥 Cuisine: {recipe.cuisine || 'Filipino'}</span>
+                    </div>
+                    {/* Save Button */}
+                    <button 
+                        onClick={handleSaveRecipe}
+                        disabled={saving}
+                        className={`mt-5 px-6 py-3 ${isSaved ? 'bg-green-500' : 'bg-orange-600'} text-white border-none rounded-[30px] text-base cursor-pointer inline-flex items-center gap-2 font-semibold`}
+                    >
+                        {isSaved ? '⭐ Saved to Favorites' : '☆ Save to Favorites'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Content Split */}
+            <div className="flex gap-10 px-[5%] py-12 items-start max-[960px]:flex-col">
+                {/* Left Column */}
+                <div className="flex-none w-[350px] flex flex-col gap-6 max-[960px]:w-full">
+                    {/* Audio Card */}
+                    <div className="bg-gradient-to-br from-orange-50 to-white rounded-3xl p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-orange-200">
+                        <div className="text-xl font-extrabold text-orange-600 flex items-center gap-2 mb-3"><span>🔊</span> Audio Assistant</div>
+                        <p className="text-gray-500 text-[0.95rem] mb-6 leading-relaxed">Listen to the recipe instructions step-by-step hands-free while cooking.</p>
+                        <div className="flex items-center justify-center gap-2 mt-[15px] bg-gray-100 p-2.5 rounded-xl">
+                            <button onClick={handlePrev} disabled={currentStep === 0} className={`p-2.5 bg-white border border-gray-300 rounded-lg ${currentStep === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>⏮</button>
+                            <button onClick={togglePlayPause} className={`flex-1 p-2.5 ${isPlaying && !isPaused ? 'bg-yellow-400 text-black' : 'bg-orange-400 text-white'} border-none rounded-lg cursor-pointer font-bold`}>
+                                {isPlaying && !isPaused ? '⏸ Pause' : `▶ Play Step ${currentStep + 1}`}
+                            </button>
+                            <button onClick={handleNext} disabled={currentStep === recipe.steps.length - 1} className={`p-2.5 bg-white border border-gray-300 rounded-lg ${currentStep === recipe.steps.length - 1 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>⏭</button>
+                            <button onClick={stopAudio} className="p-2.5 bg-red-500 text-white border-none rounded-lg cursor-pointer">⏹</button>
+                        </div>
+                    </div>
+
+                    {/* Ingredients Card */}
+                    <div className="bg-white rounded-3xl p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-gray-200">
+                        <div className="flex justify-between items-center flex-wrap gap-2.5 mb-6 pb-4 border-b border-gray-200">
+                            <div>
+                                <h2 className="m-0 text-[1.4rem] text-gray-900">Ingredients</h2>
+                                <span className="bg-gray-50 text-gray-500 px-3 py-1.5 rounded-[20px] text-sm font-bold">{recipe.ingredients?.length || 0} items</span>
+                            </div>
+                            <div className="flex items-center bg-orange-50 rounded-xl p-1 border border-orange-300">
+                                <span className="text-xs text-orange-600 mx-2 font-bold uppercase">Servings</span>
+                                <button onClick={handleDecrease} className="bg-white border border-orange-300 w-7 h-7 rounded-lg cursor-pointer font-bold text-orange-600 flex items-center justify-center">-</button>
+                                <span className="mx-2.5 font-bold text-lg min-w-[15px] text-center text-gray-900">{servings}</span>
+                                <button onClick={handleIncrease} className="bg-orange-600 text-white border-none w-7 h-7 rounded-lg cursor-pointer font-bold flex items-center justify-center">+</button>
+                            </div>
+                        </div>
+
+                        <ul className="mt-5 list-none p-0">
+                            {/* COMBINED INGREDIENTS LIST */}
+                            {[
+                                ...(recipe.marinating_ingredients || []).map(i => ({ text: i, type: 'marinating' })),
+                                ...(recipe.ingredients || []).map(i => ({ text: i, type: 'cooking' }))
+                            ].map((ingObj, index) => {
+                                const isChecked = checkedIngredients.has(index);
+                                const scaledText = scaleIngredient(ingObj.text);
+                                return (
+                                    <li 
+                                        key={index} 
+                                        onClick={() => toggleIngredient(index)}
+                                        className={`flex items-start gap-[15px] px-2.5 py-3 border-b border-gray-100 cursor-pointer rounded-lg transition-all duration-200 ${isChecked ? 'bg-gray-50 opacity-60' : 'bg-transparent'}`}
+                                    >
+                                        <div className={`w-6 h-6 rounded-full border-2 ${isChecked ? 'border-orange-600 bg-orange-600' : 'border-gray-300 bg-white'} flex items-center justify-center shrink-0 mt-0.5 transition-all duration-200`}>
+                                            {isChecked && <span className="text-white text-sm font-bold">✓</span>}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className={`text-[1.05rem] text-gray-700 leading-relaxed ${isChecked ? 'line-through' : ''}`}>
+                                                {renderIngredientText(scaledText)}
+                                            </span>
+                                            {ingObj.type === 'marinating' && (
+                                                <span className="text-[0.7rem] text-purple-500 font-bold uppercase tracking-wider">🧂 For Marinating</span>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="flex-1">
+                    {/* Video */}
+                    {recipe.video && (
+                        <div className="mb-8 rounded-3xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-gray-200 bg-white p-8">
+                            <h2 className="text-[1.4rem] text-gray-900 mb-6">Video Tutorial</h2>
+                            <div className="relative pb-[56.25%] h-0 overflow-hidden rounded-2xl">
+                                <iframe 
+                                    className="absolute inset-0 w-full h-full"
+                                    src={recipe.video} 
+                                    title={`How to Cook ${recipe.title}`} 
+                                    frameBorder="0" 
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                    allowFullScreen
+                                ></iframe>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Instructions */}
+                    <div className="bg-white rounded-3xl p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-gray-200">
+                        <h2 className="text-[1.4rem] text-gray-900 mb-8">Step-by-Step Instructions</h2>
+                        <div className="flex flex-col gap-6">
+                            {/* MARINATING SECTION */}
+                            {allMarinatingSteps.length > 0 && (
+                                <div className="mb-4">
+                                    <h3 className="text-purple-600 text-sm font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <span className="w-8 h-[2px] bg-purple-200"></span> 🧂 Marinating Phase
+                                    </h3>
+                                    <div className="flex flex-col gap-6">
+                                        {allMarinatingSteps.map((step, index) => (
+                                            <div 
+                                                className={`flex flex-col gap-3 rounded-2xl transition-all duration-300 p-4 ${currentStep === index ? 'bg-purple-50 border border-purple-200 ring-2 ring-purple-100 shadow-sm' : 'border border-gray-100 bg-gray-50/30'}`}
+                                                key={`mar-${index}`} 
+                                            >
+                                                <div className="flex gap-5">
+                                                    <div className={`${currentStep === index ? 'bg-purple-500' : 'bg-purple-100'} text-white w-9 h-9 rounded-full flex justify-center items-center font-black text-lg shrink-0 transition-colors`}>
+                                                        {index + 1}
+                                                    </div>
+                                                    <div className={`text-gray-900 leading-[1.7] text-[1.05rem] pt-1 ${currentStep === index ? 'font-semibold' : 'font-normal'}`}>{step}</div>
+                                                </div>
+                                                {recipe.marinating_step_photos?.[index] && (
+                                                    <div className="ml-14 rounded-xl overflow-hidden border border-gray-200 shadow-sm transition-transform hover:scale-[1.02] cursor-zoom-in">
+                                                        <img src={recipe.marinating_step_photos[index]} alt={`Marinating step ${index + 1}`} className="w-full max-h-[300px] object-cover" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* COOKING SECTION */}
+                            <h3 className="text-orange-600 text-sm font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                                <span className="w-8 h-[2px] bg-orange-200"></span> 🍳 Cooking Phase
+                            </h3>
+                            <div className="flex flex-col gap-6">
+                                {allCookingSteps.map((step, index) => {
+                                    const combinedIdx = allMarinatingSteps.length + index;
+                                    return (
+                                        <div 
+                                            className={`flex flex-col gap-3 rounded-2xl transition-all duration-300 p-4 ${currentStep === combinedIdx ? 'bg-orange-50 border border-orange-200 ring-2 ring-orange-100 shadow-sm' : 'border border-gray-100 bg-gray-50/30'}`}
+                                            key={`cook-${index}`} 
+                                        >
+                                            <div className="flex gap-5">
+                                                <div className={`${currentStep === combinedIdx ? 'bg-orange-600' : 'bg-orange-100'} text-white w-9 h-9 rounded-full flex justify-center items-center font-black text-lg shrink-0 transition-colors`}>
+                                                    {index + 1}
+                                                </div>
+                                                <div className={`text-gray-900 leading-[1.7] text-[1.05rem] pt-1 ${currentStep === combinedIdx ? 'font-semibold' : 'font-normal'}`}>{step}</div>
+                                            </div>
+                                            {recipe.step_photos?.[index] && (
+                                                <div className="ml-14 rounded-xl overflow-hidden border border-gray-200 shadow-sm transition-transform hover:scale-[1.02] cursor-zoom-in">
+                                                    <img src={recipe.step_photos[index]} alt={`Cooking step ${index + 1}`} className="w-full max-h-[300px] object-cover" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default RecipeTemplate;

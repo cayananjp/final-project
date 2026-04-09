@@ -1,0 +1,746 @@
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, Camera, CheckCircle, Clock, CookingPot, Droplet, Hourglass, ShoppingCart, Video } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+import { toast } from 'react-hot-toast';
+import { logTransaction } from '../utils/logger';
+const CHAR_LIMITS = {
+    title: 80,
+    description: 300,
+    ingredient: 100,
+    step: 200,
+};
+
+const TIME_LIMITS = {
+    cookTime: 750,
+    marinatingTime: 10080,
+};
+
+const formatTimeDisplay = (minutes) => {
+    if (!minutes) return '';
+    const min = parseInt(minutes);
+    
+    if (min < 60) {
+        return `${min} mins`;
+    } else if (min < 1440) {
+        const hours = Math.floor(min / 60);
+        const mins = min % 60;
+        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    } else {
+        const days = Math.floor(min / 1440);
+        const hours = Math.floor((min % 1440) / 60);
+        return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+    }
+};
+
+const CharCounter = ({ current, max }) => {
+    const isNear = current > max * 0.9;
+    return (
+        <div className={`text-[0.75rem] mt-1 ${isNear ? 'text-orange-600 font-semibold' : 'text-gray-400'}`}>
+            {current} / {max} characters {current === max && '(max reached)'}
+        </div>
+    );
+};
+
+const TimeInput = ({ label, value, onChange, maxMinutes, isOptional = false }) => {
+    const [days, setDays] = useState(0);
+    const [hours, setHours] = useState(0);
+    const [mins, setMins] = useState(0);
+
+    useEffect(() => {
+        if (value) {
+            const num = parseInt(value);
+            const d = Math.floor(num / 1440);
+            const h = Math.floor((num % 1440) / 60);
+            const m = num % 60;
+            setDays(d);
+            setHours(h);
+            setMins(m);
+        }
+    }, [value]);
+
+    const handleTimeChange = (field, val) => {
+        const num = Math.max(0, parseInt(val) || 0);
+        
+        if (field === 'days') {
+            setDays(num);
+            const total = num * 1440 + hours * 60 + mins;
+            if (total <= maxMinutes) onChange(total.toString());
+        } else if (field === 'hours') {
+            setHours(Math.min(23, num));
+            const total = days * 1440 + Math.min(23, num) * 60 + mins;
+            if (total <= maxMinutes) onChange(total.toString());
+        } else if (field === 'mins') {
+            setMins(Math.min(59, num));
+            const total = days * 1440 + hours * 60 + Math.min(59, num);
+            if (total <= maxMinutes) onChange(total.toString());
+        }
+    };
+
+    const maxDays = Math.floor(maxMinutes / 1440);
+    const currentTotal = days * 1440 + hours * 60 + mins;
+    const isWarning = currentTotal > maxMinutes * 0.9;
+
+    return (
+        <div>
+            <label className="font-semibold text-sm text-gray-700">
+                {label} {isOptional && <span className="font-normal text-gray-400">(optional)</span>}
+            </label>
+            <div className="flex gap-2 mt-2 items-center flex-wrap">
+                {maxDays > 0 && (
+                    <div className="flex-1 min-w-[80px]">
+                        <input
+                            type="number"
+                            min="0"
+                            max={maxDays}
+                            value={days}
+                            onChange={(e) => handleTimeChange('days', e.target.value)}
+                            placeholder="0"
+                            className="w-full p-2 rounded-lg border border-gray-200 text-sm box-border"
+                        />
+                        <div className="text-[0.7rem] text-gray-400 mt-[3px] text-center">days</div>
+                    </div>
+                )}
+                <div className="flex-1 min-w-[80px]">
+                    <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={hours}
+                        onChange={(e) => handleTimeChange('hours', e.target.value)}
+                        placeholder="0"
+                        className="w-full p-2 rounded-lg border border-gray-200 text-sm box-border"
+                    />
+                    <div className="text-[0.7rem] text-gray-400 mt-[3px] text-center">hours</div>
+                </div>
+                <div className="flex-1 min-w-[80px]">
+                    <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={mins}
+                        onChange={(e) => handleTimeChange('mins', e.target.value)}
+                        placeholder="0"
+                        className="w-full p-2 rounded-lg border border-gray-200 text-sm box-border"
+                    />
+                    <div className="text-[0.7rem] text-gray-400 mt-[3px] text-center">mins</div>
+                </div>
+            </div>
+            <div className={`mt-2 px-3 py-2 rounded-lg text-xs ${isWarning ? 'bg-orange-50 text-orange-600 font-semibold' : 'bg-gray-100 text-gray-500'}`}>
+                <Clock className="w-4 h-4 inline-block" /> {formatTimeDisplay(currentTotal) || 'Not set'} {currentTotal > maxMinutes && <span className="text-red-600"><AlertTriangle className="w-5 h-5 inline-block text-yellow-600" /> Exceeds limit!</span>}
+            </div>
+        </div>
+    );
+};
+
+const StepComponent = ({ steps, setSteps, handleStepChange, handleStepPhoto, removeStepPhoto, addStep, removeStep, label, isMarinating = false }) => {
+    return (
+        <div className="mb-6">
+            <label className="font-semibold text-sm text-gray-700">{label} *</label>
+            <p className="text-xs text-gray-400 mt-0.5 mb-2">Add each step and optionally a photo (max {CHAR_LIMITS.step} characters per step)</p>
+            {steps.map((step, index) => (
+                <div key={index} className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-3">
+                    <div className="flex items-center gap-2.5 mb-2.5">
+                        <div className={`${isMarinating ? 'bg-purple-500' : 'bg-orange-600'} text-white w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0`}>
+                            {index + 1}
+                        </div>
+                        <span className="font-semibold text-gray-700 text-sm">
+                            {isMarinating ? 'Pre-' : ''}Step {index + 1} ({step.instruction.length}/{CHAR_LIMITS.step})
+                        </span>
+                        {steps.length > 1 && (
+                            <button onClick={() => removeStep(index)} className="ml-auto bg-red-100 text-red-600 border-none rounded-md px-2.5 py-1 cursor-pointer text-xs font-semibold">
+                                Remove
+                            </button>
+                        )}
+                    </div>
+
+                    <textarea
+                        value={step.instruction}
+                        onChange={(e) => handleStepChange(index, e.target.value)}
+                        placeholder={`Describe step ${index + 1}...`}
+                        rows="2"
+                        className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm font-[inherit] box-border mb-1.5"
+                    />
+                    <CharCounter current={step.instruction.length} max={CHAR_LIMITS.step} />
+
+                    {step.photoPreview ? (
+                        <div className="relative inline-block mt-2.5">
+                            <img src={step.photoPreview} alt={`Step ${index + 1}`} className="w-full max-h-[180px] object-cover rounded-lg" />
+                            <button
+                                onClick={() => removeStepPhoto(index)}
+                                className="absolute top-2 right-2 bg-red-600 text-white border-none rounded-full w-7 h-7 cursor-pointer font-bold text-base"
+                            >×</button>
+                            <p className="text-[0.75rem] text-gray-500 mt-1">Click × to remove photo</p>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => document.getElementById(`step-photo-${isMarinating ? 'mar-' : 'cook-'}${index}`).click()}
+                            className="bg-white border border-dashed border-gray-300 rounded-lg px-3.5 py-2 cursor-pointer text-xs text-gray-500 flex items-center gap-1.5 mt-2.5"
+                        >
+                            <Camera className="w-5 h-5 inline-block" /> Add photo for this step <span className="text-gray-400">(optional)</span>
+                        </button>
+                    )}
+                    <input id={`step-photo-${isMarinating ? 'mar-' : 'cook-'}${index}`} type="file" accept="image/*" className="hidden" onChange={(e) => handleStepPhoto(index, e)} />
+                </div>
+            ))}
+            <button onClick={addStep} className="bg-orange-50 text-orange-600 border border-dashed border-orange-400 rounded-lg px-4 py-2 cursor-pointer font-semibold text-xs">
+                + Add Step
+            </button>
+        </div>
+    );
+};
+const UploadRecipe = () => {
+    const navigate = useNavigate();
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState(false);
+    const [mainImageFile, setMainImageFile] = useState(null);
+    const [mainImagePreview, setMainImagePreview] = useState(null);
+    const [videoFile, setVideoFile] = useState(null);
+    const [videoType, setVideoType] = useState('youtube');
+    const [youtubeUrl, setYoutubeUrl] = useState('');
+    const [uploadProgress, setUploadProgress] = useState('');
+
+    const [form, setForm] = useState({
+        title: '',
+        category: 'Chicken',
+        cookTime: '',
+        marinatingTime: '',
+        description: '',
+        price: '',
+    });
+
+    const [ingredients, setIngredients] = useState('');
+    const [marinatingIngredients, setMarinatingIngredients] = useState('');
+    
+    const [marinatingSteps, setMarinatingSteps] = useState([
+        { instruction: '', photoFile: null, photoPreview: null }
+    ]);
+    
+    const [cookingSteps, setCookingSteps] = useState([
+        { instruction: '', photoFile: null, photoPreview: null }
+    ]);
+
+
+
+
+
+    useEffect(() => {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+            if (!user) navigate('/login');
+            setUser(user);
+        });
+    }, [navigate]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        if (name === 'title' && value.length > CHAR_LIMITS.title) return;
+        if (name === 'description' && value.length > CHAR_LIMITS.description) return;
+        setForm({ ...form, [name]: value });
+    };
+
+
+
+
+
+    const handleMainImage = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image must be under 5MB!');
+            return;
+        }
+        setMainImageFile(file);
+        setMainImagePreview(URL.createObjectURL(file));
+    };
+
+    // --- INGREDIENTS ---
+    const handleIngredientChange = (index, value) => {
+        if (value.length > CHAR_LIMITS.ingredient) return;
+        const updated = [...ingredients];
+        updated[index] = value;
+        setIngredients(updated);
+    };
+
+    const addIngredient = () => setIngredients([...ingredients, '']);
+    const removeIngredient = (index) => {
+        if (ingredients.length === 1) return;
+        setIngredients(ingredients.filter((_, i) => i !== index));
+    };
+
+    // --- MARINATING INGREDIENTS ---
+    const handleMarinatingIngredientChange = (index, value) => {
+        if (value.length > CHAR_LIMITS.ingredient) return;
+        const updated = [...marinatingIngredients];
+        updated[index] = value;
+        setMarinatingIngredients(updated);
+    };
+
+    const addMarinatingIngredient = () => setMarinatingIngredients([...marinatingIngredients, '']);
+    const removeMarinatingIngredient = (index) => {
+        if (marinatingIngredients.length === 1) return;
+        setMarinatingIngredients(marinatingIngredients.filter((_, i) => i !== index));
+    };
+
+    // --- MARINATING STEPS ---
+    const handleMarinatingStepChange = (index, value) => {
+        if (value.length > CHAR_LIMITS.step) return;
+        const updated = [...marinatingSteps];
+        updated[index].instruction = value;
+        setMarinatingSteps(updated);
+    };
+
+    const handleMarinatingStepPhoto = (index, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image must be under 5MB!');
+            return;
+        }
+        const updated = [...marinatingSteps];
+        updated[index].photoFile = file;
+        updated[index].photoPreview = URL.createObjectURL(file);
+        setMarinatingSteps(updated);
+    };
+
+    const removeMarinatingStepPhoto = (index) => {
+        const updated = [...marinatingSteps];
+        updated[index].photoFile = null;
+        updated[index].photoPreview = null;
+        setMarinatingSteps(updated);
+    };
+
+    const addMarinatingStep = () => setMarinatingSteps([...marinatingSteps, { instruction: '', photoFile: null, photoPreview: null }]);
+    const removeMarinatingStep = (index) => {
+        if (marinatingSteps.length === 1) return;
+        setMarinatingSteps(marinatingSteps.filter((_, i) => i !== index));
+    };
+
+    // --- COOKING STEPS ---
+    const handleCookingStepChange = (index, value) => {
+        if (value.length > CHAR_LIMITS.step) return;
+        const updated = [...cookingSteps];
+        updated[index].instruction = value;
+        setCookingSteps(updated);
+    };
+
+    const handleCookingStepPhoto = (index, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image must be under 5MB!');
+            return;
+        }
+        const updated = [...cookingSteps];
+        updated[index].photoFile = file;
+        updated[index].photoPreview = URL.createObjectURL(file);
+        setCookingSteps(updated);
+    };
+
+    const removeCookingStepPhoto = (index) => {
+        const updated = [...cookingSteps];
+        updated[index].photoFile = null;
+        updated[index].photoPreview = null;
+        setCookingSteps(updated);
+    };
+
+    const addCookingStep = () => setCookingSteps([...cookingSteps, { instruction: '', photoFile: null, photoPreview: null }]);
+    const removeCookingStep = (index) => {
+        if (cookingSteps.length === 1) return;
+        setCookingSteps(cookingSteps.filter((_, i) => i !== index));
+    };
+
+    const uploadFile = async (file, bucket, folder) => {
+        const ext = file.name.split('.').pop();
+        const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error } = await supabase.storage
+            .from(bucket)
+            .upload(fileName, file, { cacheControl: '3600', upsert: false });
+        if (error) throw error;
+        const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(fileName);
+        return publicUrl;
+    };
+
+    const handleSubmit = async () => {
+        if (!form.title || !form.price || !form.cookTime || !form.description) {
+            toast.error('Please fill in all required fields!');
+            return;
+        }
+        if (isNaN(form.price) || Number(form.price) <= 0) {
+            toast.error('Please enter a valid price!');
+            return;
+        }
+        if (!mainImageFile) {
+            toast.error('Please upload a main recipe photo!');
+            return;
+        }
+        if (parseInt(form.cookTime) > TIME_LIMITS.cookTime) {
+            alert(`Cook time cannot exceed ${formatTimeDisplay(TIME_LIMITS.cookTime)}!`);
+            return;
+        }
+        if (form.marinatingTime && parseInt(form.marinatingTime) > TIME_LIMITS.marinatingTime) {
+            alert(`Marinating time cannot exceed ${formatTimeDisplay(TIME_LIMITS.marinatingTime)}!`);
+            return;
+        }
+
+        const validIngredients = typeof ingredients === 'string' ? ingredients.split('\n').filter(i => i.trim() !== '') : [];
+        if (validIngredients.length === 0) {
+            toast.error('Please add at least one cooking ingredient!');
+            return;
+        }
+
+        // Check marinating ingredients if marinating time is set
+        const validMarinatingIngredients = typeof marinatingIngredients === 'string' ? marinatingIngredients.split('\n').filter(i => i.trim() !== '') : [];
+        if (form.marinatingTime && validMarinatingIngredients.length === 0) {
+            toast.error('Please add marinating ingredients or remove marinating time!');
+            return;
+        }
+
+        const validCookingSteps = cookingSteps.filter(s => s.instruction.trim() !== '');
+        if (validCookingSteps.length === 0) {
+            toast.error('Please add at least one cooking step!');
+            return;
+        }
+
+        // Check marinating steps if marinating ingredients are added
+        const validMarinatingSteps = marinatingSteps.filter(s => s.instruction.trim() !== '');
+        if (validMarinatingIngredients.length > 0 && validMarinatingSteps.length === 0) {
+            toast.error('Please add marinating steps for your marinating ingredients!');
+            return;
+        }
+
+        if (videoType === 'youtube' && youtubeUrl && !youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
+            toast.error('Please enter a valid YouTube URL!');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            setUploadProgress('Uploading main photo...');
+            const mainImageUrl = await uploadFile(mainImageFile, 'recipe-images', 'main');
+
+            setUploadProgress('Uploading step photos...');
+            const marinatingStepPhotos = [];
+            for (const step of validMarinatingSteps) {
+                if (step.photoFile) {
+                    const url = await uploadFile(step.photoFile, 'recipe-images', 'steps');
+                    marinatingStepPhotos.push(url);
+                } else {
+                    marinatingStepPhotos.push(null);
+                }
+            }
+
+            const cookingStepPhotos = [];
+            for (const step of validCookingSteps) {
+                if (step.photoFile) {
+                    const url = await uploadFile(step.photoFile, 'recipe-images', 'steps');
+                    cookingStepPhotos.push(url);
+                } else {
+                    cookingStepPhotos.push(null);
+                }
+            }
+
+            let videoUrl = null;
+            if (videoType === 'youtube' && youtubeUrl) {
+                let embedUrl = youtubeUrl;
+                if (youtubeUrl.includes('watch?v=')) {
+                    embedUrl = youtubeUrl.replace('watch?v=', 'embed/');
+                } else if (youtubeUrl.includes('youtu.be/')) {
+                    const id = youtubeUrl.split('youtu.be/')[1];
+                    embedUrl = `https://www.youtube.com/embed/${id}`;
+                }
+                videoUrl = embedUrl;
+            } else if (videoType === 'upload' && videoFile) {
+                setUploadProgress('Uploading video... this may take a while...');
+                videoUrl = await uploadFile(videoFile, 'recipe-videos', 'videos');
+            }
+
+            setUploadProgress('Saving recipe...');
+            const recipeId = form.title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
+
+            const { error } = await supabase.from('recipes').insert([{
+                id: recipeId,
+                title: form.title,
+                category: form.category,
+                cuisine: 'Filipino',
+                time: formatTimeDisplay(form.cookTime),
+                marinating_time: form.marinatingTime ? formatTimeDisplay(form.marinatingTime) : null,
+                description: form.description,
+                image: mainImageUrl,
+                price: Number(form.price),
+                ingredients: validIngredients,
+                marinating_ingredients: validMarinatingIngredients,
+                required: validIngredients.map(i => i.split(' ').pop().toLowerCase()),
+                marinating_steps: validMarinatingSteps.map(s => s.instruction),
+                marinating_step_photos: marinatingStepPhotos,
+                steps: validCookingSteps.map(s => s.instruction),
+                step_photos: cookingStepPhotos,
+                video: videoUrl,
+                created_by: user.id,
+                is_user_recipe: true,
+                is_approved: false,
+                status: 'pending',
+            }]);
+
+            if (error) throw error;
+            
+            // Log the recipe upload activity
+            await logTransaction('upload_recipe', { 
+                title: form.title, 
+                status: 'pending',
+                recipe_id: recipeId,
+                category: form.category,
+                price: Number(form.price)
+            });
+            
+            setSuccess(true);
+
+        } catch (error) {
+            toast.error('Error uploading recipe: ' + error.message);
+        } finally {
+            setLoading(false);
+            setUploadProgress('');
+        }
+    };
+
+    if (success) {
+        return (
+            <div className="text-center p-20">
+                <div className="text-[4rem]"><Hourglass className="w-5 h-5" /></div>
+                <h2 className="text-orange-600">Recipe Submitted!</h2>
+                <p className="text-gray-500 max-w-[400px] mx-auto mt-4">
+                    Your recipe is now <strong>pending approval</strong> from our admin team.
+                    Once approved, it will appear in the Marketplace for others to buy!
+                </p>
+                <div className="bg-orange-50 border border-orange-400 rounded-xl p-4 max-w-[400px] mx-auto mt-4">
+                    <p className="text-orange-600 font-semibold m-0"><Clock className="w-4 h-4 inline-block" /> Usually approved within 24 hours</p>
+                </div>
+                <div className="flex gap-3 justify-center mt-8">
+                    <button onClick={() => navigate('/marketplace')} className="bg-orange-600 text-white px-6 py-3 border-none rounded-xl cursor-pointer font-semibold">
+                        <ShoppingCart className="w-5 h-5 inline-block" /> Go to Marketplace
+                    </button>
+                    <button onClick={() => { setSuccess(false); setForm({ title: '', category: 'Chicken', cookTime: '', marinatingTime: '', description: '', price: '' }); setIngredients(['']); setMarinatingIngredients(['']); setMarinatingSteps([{ instruction: '', photoFile: null, photoPreview: null }]); setCookingSteps([{ instruction: '', photoFile: null, photoPreview: null }]); setMainImageFile(null); setMainImagePreview(null); setVideoFile(null); setYoutubeUrl(''); }} className="bg-white text-orange-600 px-6 py-3 border border-orange-600 rounded-xl cursor-pointer font-semibold">
+                        + Upload Another
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+
+
+
+
+// Removed IngredientsTextArea subcomponent to prevent React focus loss on re-render
+
+    return (
+        <div className="max-w-[750px] mx-auto mt-8 px-5 pb-16">
+            <div className="bg-white rounded-[20px] p-8 border border-gray-200">
+                <h1 className="text-orange-600 mt-0">📤 Upload Your Recipe</h1>
+                <p className="text-gray-500 mb-8">Share your recipe with the community and earn from it! Your recipe will be reviewed before publishing.</p>
+
+                {/* MAIN PHOTO */}
+                <div className="mb-6">
+                    <label className="font-semibold text-sm text-gray-700"><Camera className="w-6 h-6 inline-block" /> Main Recipe Photo *</label>
+                    <div
+                        onClick={() => document.getElementById('main-photo').click()}
+                        className="mt-2 border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer bg-gray-50"
+                    >
+                        {mainImagePreview ? (
+                            <div>
+                                <img src={mainImagePreview} alt="Preview" className="w-full max-h-[250px] object-cover rounded-lg" />
+                                <p className="text-orange-600 mt-2 text-xs font-semibold">Click to change photo</p>
+                            </div>
+                        ) : (
+                            <div>
+                                <div className="text-[3rem]"><Camera className="w-5 h-5" /></div>
+                                <p className="text-gray-500 mt-2 mb-0">Click to upload main recipe photo</p>
+                                <p className="text-gray-400 text-xs mt-1 mb-0">JPG, PNG up to 5MB</p>
+                            </div>
+                        )}
+                    </div>
+                    <input id="main-photo" type="file" accept="image/*" className="hidden" onChange={handleMainImage} />
+                </div>
+
+                {/* TITLE */}
+                <div className="mb-5">
+                    <label className="font-semibold text-sm text-gray-700">Recipe Title * ({form.title.length}/{CHAR_LIMITS.title})</label>
+                    <input name="title" value={form.title} onChange={handleChange} placeholder="e.g. Special Chicken Adobo" className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm font-[inherit] box-border mt-1.5" />
+                    <CharCounter current={form.title.length} max={CHAR_LIMITS.title} />
+                </div>
+
+                {/* CATEGORY */}
+                <div className="mb-5">
+                    <label className="font-semibold text-sm text-gray-700">Category *</label>
+                    <select name="category" value={form.category} onChange={handleChange} className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm font-[inherit] box-border mt-1.5">
+                        {['Chicken', 'Beef', 'Pork', 'Seafood', 'Vegetables', 'Snacks'].map(c => (
+                            <option key={c} value={c}>{c}</option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* COOK TIME */}
+                <div className="mb-6">
+                    <TimeInput 
+                        label="Cook Time *"
+                        value={form.cookTime}
+                        onChange={(val) => setForm({ ...form, cookTime: val })}
+                        maxMinutes={TIME_LIMITS.cookTime}
+                    />
+                </div>
+
+                {/* MARINATING TIME (OPTIONAL) */}
+                <div className="mb-6">
+                    <TimeInput 
+                        label="Marinating/Prep Time"
+                        value={form.marinatingTime}
+                        onChange={(val) => setForm({ ...form, marinatingTime: val })}
+                        maxMinutes={TIME_LIMITS.marinatingTime}
+                        isOptional={true}
+                    />
+                </div>
+
+                {/* DESCRIPTION */}
+                <div className="mb-5">
+                    <label className="font-semibold text-sm text-gray-700">Description * ({form.description.length}/{CHAR_LIMITS.description})</label>
+                    <textarea name="description" value={form.description} onChange={handleChange} rows="2" placeholder="Brief description of your recipe..." className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm font-[inherit] box-border mt-1.5" />
+                    <CharCounter current={form.description.length} max={CHAR_LIMITS.description} />
+                </div>
+
+                {/* PRICE */}
+                <div className="mb-6">
+                    <label className="font-semibold text-sm text-gray-700">Price (₱) *</label>
+                    <input name="price" value={form.price} onChange={handleChange} type="number" min="1" placeholder="e.g. 49" className="w-full px-3.5 py-2.5 rounded-lg border-2 border-orange-600 text-sm font-[inherit] box-border mt-1.5" />
+                    <p className="text-xs text-gray-500 mt-1">Set a fair price for your recipe. Other users will pay this to access it.</p>
+                </div>
+
+                {/* COOKING INGREDIENTS */}
+                <div className="mb-6">
+                    <label className="font-semibold text-sm text-gray-700"><CookingPot className="w-6 h-6 inline-block" /> Cooking Ingredients *</label>
+                    <p className="text-xs text-gray-400 mt-0.5 mb-2">Type your ingredients below. Press Enter for each new ingredient.</p>
+                    <textarea
+                        value={ingredients || ''}
+                        onChange={(e) => setIngredients(e.target.value)}
+                        placeholder={'e.g.\n1 kg chicken\n2 cups water\n1 whole onion, sliced'}
+                        className="w-full px-3.5 py-3 rounded-lg border border-gray-200 text-sm font-[inherit] box-border min-h-[120px] resize-y"
+                    />
+                </div>
+
+                {/* MARINATING INGREDIENTS (Only show if marinating time is set) */}
+                {form.marinatingTime && (
+                    <div className="mb-6">
+                        <label className="font-semibold text-sm text-gray-700"><Droplet className="w-4 h-4 inline-block" /> Marinating Ingredients <span className="font-normal text-gray-400">(optional)</span> *</label>
+                        <p className="text-xs text-gray-400 mt-0.5 mb-2">Type your ingredients below. Press Enter for each new ingredient.</p>
+                        <textarea
+                            value={marinatingIngredients || ''}
+                            onChange={(e) => setMarinatingIngredients(e.target.value)}
+                            placeholder={'e.g.\n2 tbsp soy sauce\n1 tsp pepper'}
+                            className="w-full px-3.5 py-3 rounded-lg border border-gray-200 text-sm font-[inherit] box-border min-h-[120px] resize-y"
+                        />
+                    </div>
+                )}
+
+                {/* MARINATING STEPS (Only show if marinating ingredients are added) */}
+                {marinatingIngredients.trim() !== '' && (
+                    <StepComponent 
+                        steps={marinatingSteps}
+                        setSteps={setMarinatingSteps}
+                        handleStepChange={handleMarinatingStepChange}
+                        handleStepPhoto={handleMarinatingStepPhoto}
+                        removeStepPhoto={removeMarinatingStepPhoto}
+                        addStep={addMarinatingStep}
+                        removeStep={removeMarinatingStep}
+                        label={<><Droplet className="w-5 h-5 inline-block" /> Marinating Steps</>}
+                        isMarinating={true}
+                    />
+                )}
+
+                {/* COOKING STEPS */}
+                <StepComponent 
+                    steps={cookingSteps}
+                    setSteps={setCookingSteps}
+                    handleStepChange={handleCookingStepChange}
+                    handleStepPhoto={handleCookingStepPhoto}
+                    removeStepPhoto={removeCookingStepPhoto}
+                    addStep={addCookingStep}
+                    removeStep={removeCookingStep}
+                    label={<><CookingPot className="w-5 h-5 inline-block" /> Cooking Steps</>}
+                    isMarinating={false}
+                />
+
+                {/* VIDEO SECTION */}
+                <div className="mb-8">
+                    <label className="font-semibold text-sm text-gray-700"><Video className="w-5 h-5 inline-block" /> Recipe Video <span className="font-normal text-gray-400">(optional)</span></label>
+                    <p className="text-xs text-gray-400 mt-0.5 mb-2.5">Add a full cooking video to make your recipe more appealing</p>
+
+                    <div className="flex gap-2 mb-3">
+                        <button
+                            onClick={() => setVideoType('youtube')}
+                            className={`px-4 py-2 rounded-[20px] border border-gray-200 cursor-pointer font-semibold text-xs ${videoType === 'youtube' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-gray-700'}`}
+                        >
+                            <Video className="w-4 h-4 inline-block" /> YouTube Link
+                        </button>
+                        <button
+                            onClick={() => setVideoType('upload')}
+                            className={`px-4 py-2 rounded-[20px] border border-gray-200 cursor-pointer font-semibold text-xs ${videoType === 'upload' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-gray-700'}`}
+                        >
+                            <Video className="w-4 h-4 inline-block" /> Upload Video
+                        </button>
+                    </div>
+
+                    {videoType === 'youtube' ? (
+                        <div>
+                            <input
+                                value={youtubeUrl}
+                                onChange={(e) => setYoutubeUrl(e.target.value)}
+                                placeholder="https://www.youtube.com/watch?v=..."
+                                className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm font-[inherit] box-border mt-1.5"
+                            />
+                            {youtubeUrl && (
+                                <p className="text-xs text-green-500 mt-1"><CheckCircle className="w-5 h-5 inline-block text-green-600" /> YouTube link added</p>
+                            )}
+                        </div>
+                    ) : (
+                        <div
+                            onClick={() => document.getElementById('video-upload').click()}
+                            className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer bg-gray-50"
+                        >
+                            {videoFile ? (
+                                <div>
+                                    <div className="text-[2rem]"><Video className="w-5 h-5" /></div>
+                                    <p className="text-green-500 font-semibold mt-1 mb-0">{videoFile.name}</p>
+                                    <p className="text-gray-400 text-xs">Click to change</p>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="text-[2rem]"><Video className="w-5 h-5" /></div>
+                                    <p className="text-gray-500 mt-2 mb-0">Click to upload video</p>
+                                    <p className="text-gray-400 text-xs mt-1 mb-0">MP4, MOV up to 100MB</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <input id="video-upload" type="file" accept="video/*" className="hidden" onChange={(e) => setVideoFile(e.target.files[0])} />
+                </div>
+
+                {/* SUBMIT */}
+                {uploadProgress && (
+                    <div className="bg-orange-50 border border-orange-400 rounded-[10px] p-3 mb-4 text-center text-orange-600 font-semibold">
+                        <Hourglass className="w-5 h-5 inline-block" /> {uploadProgress}
+                    </div>
+                )}
+
+                <button
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className={`w-full py-3.5 ${loading ? 'bg-gray-300 cursor-not-allowed' : 'bg-orange-600 cursor-pointer'} text-white border-none rounded-xl text-base font-bold`}
+                >
+                    {loading ? <><Hourglass className="w-5 h-5 inline-block" /> Uploading...</> : <><CheckCircle className="w-5 h-5 inline-block" /> Submit for Approval</>}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+export default UploadRecipe;

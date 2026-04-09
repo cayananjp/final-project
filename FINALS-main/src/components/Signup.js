@@ -1,0 +1,349 @@
+import React, { useState, useRef } from 'react';
+import { Mail, Utensils } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+
+const Signup = () => {
+    const [formData, setFormData] = useState({
+        fullName: '',
+        email: '',
+        password: '',
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const navigate = useNavigate();
+
+    // OTP state
+    const [otpSent, setOtpSent] = useState(false);
+    const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [verifying, setVerifying] = useState(false);
+    const [resendCooldown, setResendCooldown] = useState(0);
+    const inputRefs = useRef([]);
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    // Step 1: Create account — signUp() sends ONE "Confirm signup" email with the OTP code
+    const handleSignup = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email: formData.email,
+                password: formData.password,
+                options: {
+                    data: { full_name: formData.fullName },
+                },
+            });
+
+            if (authError) throw authError;
+
+            // Store user ID for profile creation after OTP verification
+            if (authData.user) {
+                setFormData(prev => ({ ...prev, userId: authData.user.id }));
+            }
+
+            setOtpSent(true);
+            startResendCooldown();
+            
+        } catch (err) {
+            if (err.message.includes('already registered')) {
+                setError('This email is already registered. Please log in instead.');
+            } else {
+                setError(err.message);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Step 2: Verify OTP — uses type 'signup' to match the signup confirmation email
+    const handleVerifyOtp = async () => {
+        const otpCode = otp.join('');
+        if (otpCode.length !== 6) {
+            setError('Please enter the full 6-digit code.');
+            return;
+        }
+
+        setVerifying(true);
+        setError('');
+
+        try {
+            const { data, error } = await supabase.auth.verifyOtp({
+                email: formData.email,
+                token: otpCode,
+                type: 'signup',
+            });
+
+            if (error) throw error;
+
+            // Create profile after successful verification
+            if (data.user) {
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .upsert([{ 
+                        id: data.user.id, 
+                        username: formData.fullName 
+                    }]);
+                
+                if (profileError) {
+                    console.error("Profile DB Insert Error:", profileError);
+                }
+            }
+
+            navigate('/');
+        } catch (err) {
+            setError('Invalid or expired code. Please try again.');
+            setOtp(['', '', '', '', '', '']);
+            inputRefs.current[0]?.focus();
+        } finally {
+            setVerifying(false);
+        }
+    };
+
+    // Resend cooldown timer
+    const startResendCooldown = () => {
+        setResendCooldown(60);
+        const interval = setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) { clearInterval(interval); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+    };
+
+    // Resend OTP — uses signInWithOtp for resending
+    const handleResend = async () => {
+        if (resendCooldown > 0) return;
+        setError('');
+        try {
+            const { error } = await supabase.auth.resend({
+                type: 'signup',
+                email: formData.email,
+            });
+            if (error) throw error;
+            startResendCooldown();
+            setOtp(['', '', '', '', '', '']);
+            inputRefs.current[0]?.focus();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // Handle individual OTP digit input
+    const handleOtpChange = (index, value) => {
+        if (!/^\d*$/.test(value)) return;
+        const newOtp = [...otp];
+        newOtp[index] = value.slice(-1);
+        setOtp(newOtp);
+
+        if (value && index < 5) {
+            inputRefs.current[index + 1]?.focus();
+        }
+
+        if (index === 5 && value) {
+            const fullCode = newOtp.join('');
+            if (fullCode.length === 6) {
+                setTimeout(() => handleVerifyOtp(), 100);
+            }
+        }
+    };
+
+    const handleOtpKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !otp[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handlePaste = (e) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        if (pasted.length === 0) return;
+        const newOtp = [...otp];
+        for (let i = 0; i < 6; i++) {
+            newOtp[i] = pasted[i] || '';
+        }
+        setOtp(newOtp);
+        const lastFilledIndex = Math.min(pasted.length, 5);
+        inputRefs.current[lastFilledIndex]?.focus();
+        if (pasted.length === 6) {
+            setTimeout(() => handleVerifyOtp(), 100);
+        }
+    };
+
+    // ─── OTP VERIFICATION SCREEN ───
+    if (otpSent) {
+        return (
+            <div className="flex justify-center items-center min-h-[80vh] px-[5%] py-8">
+                <div className="flex flex-row w-full max-w-[1000px] bg-white rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] overflow-hidden max-md:flex-col">
+
+                    {/* Left: OTP Form */}
+                    <div className="flex-1 p-14 flex flex-col justify-center items-center max-md:p-8">
+                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                            <span className="text-[2rem]"><Mail className="w-8 h-8" /></span>
+                        </div>
+                        <h1 className="text-[1.8rem] text-gray-900 mb-2 text-center">Verify Your Email</h1>
+                        <p className="text-gray-500 mb-1 text-center text-[0.95rem]">
+                            We sent a 6-digit verification code to
+                        </p>
+                        <p className="text-orange-600 font-bold mb-2 text-center">{formData.email}</p>
+                        <p className="text-gray-400 text-[0.85rem] mb-6 text-center">
+                            Enter the code below to verify your account
+                        </p>
+
+                        {error && <div className="bg-red-100 text-red-600 p-3 rounded-xl mb-5 text-[0.9rem] text-center w-full">{error}</div>}
+
+                        {/* OTP Input Boxes */}
+                        <div className="flex gap-3 mb-6" onPaste={handlePaste}>
+                            {otp.map((digit, index) => (
+                                <input
+                                    key={index}
+                                    ref={el => inputRefs.current[index] = el}
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={1}
+                                    value={digit}
+                                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                                    className={`w-12 h-14 text-center text-2xl font-bold border-2 rounded-xl outline-none transition-all duration-200 ${
+                                        digit 
+                                            ? 'border-orange-600 bg-orange-50 text-orange-600' 
+                                            : 'border-gray-200 bg-gray-50 text-gray-900'
+                                    } focus:border-orange-600 focus:ring-2 focus:ring-orange-200`}
+                                    autoFocus={index === 0}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Verify Button */}
+                        <button
+                            onClick={handleVerifyOtp}
+                            disabled={verifying || otp.join('').length !== 6}
+                            className="w-full max-w-[320px] p-4 bg-orange-600 text-white border-none rounded-xl text-[1.05rem] font-semibold cursor-pointer transition-colors duration-200 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {verifying ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    Verifying...
+                                </span>
+                            ) : 'Verify & Continue →'}
+                        </button>
+
+                        {/* Resend */}
+                        <div className="mt-6 text-center text-gray-500 text-[0.9rem]">
+                            {resendCooldown > 0 ? (
+                                <p>Resend code in <span className="text-orange-600 font-bold">{resendCooldown}s</span></p>
+                            ) : (
+                                <p>
+                                    Didn't receive the code?{' '}
+                                    <button onClick={handleResend} className="bg-transparent border-none text-orange-600 cursor-pointer font-semibold underline text-[0.9rem]">
+                                        Resend Code
+                                    </button>
+                                </p>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setError(''); }}
+                            className="mt-4 bg-transparent border-none text-gray-400 cursor-pointer text-[0.85rem] hover:text-gray-600"
+                        >
+                            ← Use a different email
+                        </button>
+                    </div>
+
+                    {/* Right: Image */}
+                    <div className="flex-1 relative min-h-[500px] max-md:min-h-[250px]">
+                        <img src="/pictures/signup.png" alt="Filipino Dishes" className="absolute inset-0 w-full h-full object-cover" />
+                        <div className="relative z-[2] h-full flex flex-col justify-end p-12 bg-gradient-to-t from-black/80 via-transparent to-transparent text-white">
+                            <h2 className="text-[2rem] mb-2">One more step!</h2>
+                            <p className="text-base leading-relaxed text-gray-200">Verify your email to unlock all SavorSense features — favorites, pantry tracking, and personalized recipes.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ─── MAIN SIGNUP SCREEN ───
+    return (
+        <div className="flex justify-center items-center min-h-[80vh] px-[5%] py-8">
+            <div className="flex flex-row w-full max-w-[1000px] bg-white rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] overflow-hidden max-md:flex-col">
+                {/* Form Panel */}
+                <div className="flex-1 p-14 flex flex-col justify-center max-md:p-8">
+                    <div className="text-[2.5rem] mb-2"><Utensils className="w-6 h-6" /></div>
+                    <h1 className="text-[2rem] text-gray-900 mb-2">Join SavorSense</h1>
+                    <p className="text-gray-500 mb-8">Create an account to start your culinary journey.</p>
+
+                    {error && <div className="bg-red-100 text-red-600 p-3 rounded-xl mb-5 text-[0.9rem] text-center">{error}</div>}
+
+                    <form onSubmit={handleSignup}>
+                        <div className="mb-6">
+                            <label className="text-[0.9rem] font-semibold text-gray-900">Full Name</label>
+                            <div className="flex items-center border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 transition-colors duration-200 focus-within:border-orange-600 mt-2">
+                                <input 
+                                    name="fullName" 
+                                    type="text" 
+                                    placeholder="Jose Dela Cruz Protacio Rizal" 
+                                    onChange={handleChange} 
+                                    required 
+                                    className="border-none bg-transparent outline-none w-full text-base text-gray-900"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="text-[0.9rem] font-semibold text-gray-900">Email Address</label>
+                            <div className="flex items-center border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 transition-colors duration-200 focus-within:border-orange-600 mt-2">
+                                <input 
+                                    name="email" 
+                                    type="email" 
+                                    placeholder="you@example.com" 
+                                    onChange={handleChange} 
+                                    required 
+                                    className="border-none bg-transparent outline-none w-full text-base text-gray-900"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="text-[0.9rem] font-semibold text-gray-900">Password</label>
+                            <div className="flex items-center border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 transition-colors duration-200 focus-within:border-orange-600 mt-2">
+                                <input 
+                                    name="password" 
+                                    type="password" 
+                                    placeholder="Create a strong password" 
+                                    onChange={handleChange} 
+                                    required 
+                                    minLength={6}
+                                    className="border-none bg-transparent outline-none w-full text-base text-gray-900"
+                                />
+                            </div>
+                        </div>
+
+                        <button type="submit" className="w-full p-4 bg-orange-600 text-white border-none rounded-xl text-[1.1rem] font-semibold cursor-pointer mt-4 transition-colors duration-200 hover:bg-orange-700 disabled:opacity-50" disabled={loading}>
+                            {loading ? 'Creating Account...' : 'Create Account →'}
+                        </button>
+                    </form>
+
+                    <div className="mt-8 text-center text-gray-500">
+                        Already have an account? <Link to="/login" className="text-orange-600 font-semibold no-underline hover:underline">Sign In</Link>
+                    </div>
+                </div>
+
+                {/* Image Panel */}
+                <div className="flex-1 relative min-h-[500px] max-md:min-h-[250px]">
+                    <img src="/pictures/signup.png" alt="Filipino Dishes" className="absolute inset-0 w-full h-full object-cover" />
+                    <div className="relative z-[2] h-full flex flex-col justify-end p-12 bg-gradient-to-t from-black/80 via-transparent to-transparent text-white">
+                        <h2 className="text-[2rem] mb-2">Cook with confidence.</h2>
+                        <p className="text-base leading-relaxed text-gray-200">Join our community to unlock step-by-step cooking modes, voice-assisted instructions, and hundreds of local recipes.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Signup;

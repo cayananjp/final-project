@@ -1,0 +1,86 @@
+{
+  "name": "SavorSense-web",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@google/genai": "^1.46.0",
+    "@supabase/supabase-js": "^2.100.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^13.5.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "lucide-react": "^1.8.0",
+    "multer": "^2.1.1",
+    "pure-rand": "^8.4.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.13.1",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "jest": {
+    "transformIgnorePatterns": [
+      "node_modules/(?!(fast-check|pure-rand)/)"
+    ],
+    "moduleNameMapper": {
+      "^pure-rand/generator/congruential32$": "<rootDir>/node_modules/pure-rand/lib/generator/congruential32.js",
+      "^pure-rand/generator/mersenne$": "<rootDir>/node_modules/pure-rand/lib/generator/mersenne.js",
+      "^pure-rand/generator/xorshift128plus$": "<rootDir>/node_modules/pure-rand/lib/generator/xorshift128plus.js",
+      "^pure-rand/generator/xoroshiro128plus$": "<rootDir>/node_modules/pure-rand/lib/generator/xoroshiro128plus.js",
+      "^pure-rand/distribution/uniformBigInt$": "<rootDir>/node_modules/pure-rand/lib/distribution/uniformBigInt.js",
+      "^pure-rand/distribution/uniformInt$": "<rootDir>/node_modules/pure-rand/lib/distribution/uniformInt.js",
+      "^pure-rand/distribution/uniformFloat32$": "<rootDir>/node_modules/pure-rand/lib/distribution/uniformFloat32.js",
+      "^pure-rand/distribution/uniformFloat64$": "<rootDir>/node_modules/pure-rand/lib/distribution/uniformFloat64.js",
+      "^pure-rand/types/JumpableRandomGenerator$": "<rootDir>/node_modules/pure-rand/lib/types/JumpableRandomGenerator.js",
+      "^pure-rand/types/RandomGenerator$": "<rootDir>/node_modules/pure-rand/lib/types/RandomGenerator.js",
+      "^pure-rand/utils/generateN$": "<rootDir>/node_modules/pure-rand/lib/utils/generateN.js",
+      "^pure-rand/utils/purify$": "<rootDir>/node_modules/pure-rand/lib/utils/purify.js",
+      "^pure-rand/utils/skipN$": "<rootDir>/node_modules/pure-rand/lib/utils/skipN.js"
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.27",
+    "fast-check": "^4.6.0",
+    "postcss": "^8.5.9",
+    "tailwindcss": "^3.4.19"
+  },
+  "description": "This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zhongkang-ers/FINALS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Zhongkang-ers/FINALS/issues"
+  }
+}

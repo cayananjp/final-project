@@ -1,0 +1,201 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - Icon String Literals Render as Text
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate icon string literals are rendering as text instead of visual icons
+  - **Scoped PBT Approach**: For deterministic UI bugs, scope the property to concrete failing cases to ensure reproducibility
+  - Test implementation details from Bug Condition in design:
+    - Navigate to Profile component and verify achievement badges display icon strings as text (e.g., "<Star className='w-4 h-4 inline-block' /> First Favorite")
+    - Navigate to AdminDashboard and verify menu items display icon strings as text (e.g., "<BarChart className='w-6 h-6 inline-block' /> Overview")
+    - Trigger save recipe action and verify toast notification displays icon string as text (e.g., "<CheckCircle /> Recipe saved!")
+    - Navigate to Profile > My Recipes and verify status badges display icon strings as text (e.g., "<CheckCircle /> Approved")
+    - Navigate to RecipeTemplate and verify audio controls display icon strings as text (e.g., "<Pause /> Pause")
+  - The test assertions should match the Expected Behavior Properties from design:
+    - Icons should render as visual icon components, not text strings
+    - All Lucide React icons should display their graphical representation
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists)
+  - Document counterexamples found to understand root cause:
+    - Screenshot or describe each instance where icon strings appear as text
+    - Note the file, line number, and context for each occurrence
+    - Verify the pattern matches isBugCondition(codeElement) from design
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Functional Behavior Unchanged
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy inputs (functional features that don't involve icon rendering)
+  - Write property-based tests capturing observed behavior patterns from Preservation Requirements:
+    - Test authentication flow (login, signup, logout) works correctly
+    - Test recipe viewing and navigation functions correctly
+    - Test favorites management (save/unsave) persists data correctly
+    - Test pantry management (add, remove, scan) operates correctly
+    - Test marketplace transactions (purchase, sell) process correctly
+    - Test recipe upload with images submits correctly
+    - Test admin functions (approve/reject recipes) work correctly
+    - Test audio assistant provides text-to-speech correctly
+    - Test servings calculator scales ingredients correctly
+    - Test responsive layouts adapt correctly on mobile
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10_
+
+- [x] 3. Fix icon rendering bugs and standardize UI
+
+  - [x] 3.1 Fix Profile.js icon string literals
+    - Convert toast notification messages from strings to JSX (lines ~127, ~253)
+      - Change: `toast.success('Recipe saved! <Star />')` 
+      - To: `toast.success(<span>Recipe saved! <Star className="w-4 h-4 inline-block" /></span>)`
+    - Convert achievement badge labels from strings to JSX elements (line ~283)
+      - Change: `{ label: '<Star className="w-4 h-4 inline-block" /> First Favorite', ... }`
+      - To: `{ label: <><Star className="w-4 h-4 inline-block" /> First Favorite</>, ... }`
+    - Refactor saveMessage state to support JSX or separate icon rendering (line ~253)
+      - Option A: Store message text only, render icon separately in JSX
+      - Option B: Change saveMessage to support JSX elements
+    - Convert wallet icon from string to JSX (line ~365)
+    - Convert status badge icons from strings to JSX (line ~532)
+      - Change: `'<CheckCircle className="w-5 h-5 inline-block text-green-600" /> Live'`
+      - To: `<><CheckCircle className="w-5 h-5 inline-block text-green-600" /> Live</>`
+    - Standardize button border-radius to `rounded-xl` for primary buttons
+    - Standardize font sizes: replace `text-[0.9rem]` with `text-sm`, `text-[0.85rem]` with `text-xs`
+    - _Bug_Condition: isBugCondition(codeElement) where codeElement is a string/template literal containing icon component syntax_
+    - _Expected_Behavior: Icons render as JSX components displaying visual icons (Property 1 from design)_
+    - _Preservation: All authentication, navigation, data management, and business logic remain unchanged (Property 2 from design)_
+    - _Requirements: 1.1, 1.3, 1.12, 2.1, 2.3, 2.4, 2.12, 3.1, 3.2, 3.5_
+
+  - [x] 3.2 Fix AdminDashboard.js icon string literals
+    - Convert menu item icon property from strings to JSX elements (line ~23)
+      - Change: `{ name: 'Overview', icon: '<BarChart className="w-6 h-6 inline-block" />' }`
+      - To: `{ name: 'Overview', icon: <BarChart className="w-6 h-6 inline-block" /> }`
+    - Convert toast notification messages from strings to JSX (lines ~113, ~119)
+      - Change: `toast.success('<CheckCircle className="w-5 h-5 inline-block text-green-600" /> Recipe approved!')`
+      - To: `toast.success(<span><CheckCircle className="w-5 h-5 inline-block text-green-600" /> Recipe approved!</span>)`
+    - Convert action icons function return values from strings to JSX (line ~207)
+      - Change: `return '<KeyRound className="w-4 h-4 inline-block" />'`
+      - To: `return <KeyRound className="w-4 h-4 inline-block" />`
+    - Convert stats display icons from strings to JSX (line ~245)
+      - Change: `{ label: 'Total Users', icon: '<Users className="w-5 h-5 inline-block" />' }`
+      - To: `{ label: 'Total Users', icon: <Users className="w-5 h-5 inline-block" /> }`
+    - Replace emoji icons with Lucide components
+      - Change: `{ name: 'Manage Recipes', icon: '🍲' }`
+      - To: `{ name: 'Manage Recipes', icon: <CookingPot className="w-6 h-6 inline-block" /> }`
+    - Standardize button border-radius and font sizes
+    - _Bug_Condition: isBugCondition(codeElement) where codeElement is a string/template literal containing icon component syntax_
+    - _Expected_Behavior: Icons render as JSX components displaying visual icons (Property 1 from design)_
+    - _Preservation: All admin functionality, role-based access control, and business logic remain unchanged (Property 2 from design)_
+    - _Requirements: 1.2, 1.4, 1.11, 2.2, 2.4, 2.11, 3.9_
+
+  - [x] 3.3 Fix RecipeTemplate.js icon string literals
+    - Convert audio button text from strings to JSX (lines ~235, ~237)
+      - Change: `'<Pause className="w-5 h-5 inline-block" /> Pause'`
+      - To: `<><Pause className="w-5 h-5 inline-block" /> Pause</>`
+    - Convert toast notification messages from strings to JSX (line ~127)
+      - Change: `toast.success('Recipe saved to favorites! <Star className="w-4 h-4 inline-block" />')`
+      - To: `toast.success(<span>Recipe saved to favorites! <Star className="w-4 h-4 inline-block" /></span>)`
+    - Verify ingredient labels are already correct JSX (line ~265) - no change needed
+      - Current: `<span className="..."><Droplet className="w-4 h-4 inline-block" /> For Marinating</span>`
+      - Status: Already correct JSX syntax
+    - Standardize button border-radius and font sizes
+    - _Bug_Condition: isBugCondition(codeElement) where codeElement is a string/template literal containing icon component syntax_
+    - _Expected_Behavior: Icons render as JSX components displaying visual icons (Property 1 from design)_
+    - _Preservation: Audio assistant, ingredient checklist, servings calculator, and all recipe viewing functionality remain unchanged (Property 2 from design)_
+    - _Requirements: 1.4, 1.5, 2.4, 2.5, 3.6, 3.7_
+
+  - [x] 3.4 Fix Marketplace.js icon string literals (if applicable)
+    - Search for and convert any status badge icon strings to JSX
+    - Search for and convert any toast notification icon strings to JSX
+    - Verify transaction indicators use proper JSX icon syntax
+    - Standardize button border-radius and font sizes
+    - _Bug_Condition: isBugCondition(codeElement) where codeElement is a string/template literal containing icon component syntax_
+    - _Expected_Behavior: Icons render as JSX components displaying visual icons (Property 1 from design)_
+    - _Preservation: All marketplace transactions, wallet operations, and purchase functionality remain unchanged (Property 2 from design)_
+    - _Requirements: 1.7, 2.7, 3.4_
+
+  - [x] 3.5 Fix UploadRecipe.js icon string literals (if applicable)
+    - Search for and convert any form label icon strings to JSX
+    - Search for and convert any button text icon strings to JSX
+    - Verify file upload labels use proper JSX icon syntax
+    - Standardize button border-radius and font sizes
+    - _Bug_Condition: isBugCondition(codeElement) where codeElement is a string/template literal containing icon component syntax_
+    - _Expected_Behavior: Icons render as JSX components displaying visual icons (Property 1 from design)_
+    - _Preservation: All file upload functionality, form validation, and recipe submission remain unchanged (Property 2 from design)_
+    - _Requirements: 1.6, 2.6, 3.3_
+
+  - [x] 3.6 Fix Home.js icon inconsistencies
+    - Replace star rating emojis (⭐) with Lucide Star icon components
+    - Ensure consistent icon sizing across all rating displays
+    - Standardize button border-radius and font sizes
+    - _Bug_Condition: Mixed emoji and icon components creating visual inconsistency_
+    - _Expected_Behavior: Consistent Lucide icon components for all ratings (Property 1 from design)_
+    - _Preservation: All recipe browsing, search, and navigation functionality remain unchanged (Property 2 from design)_
+    - _Requirements: 1.8, 2.8, 3.2_
+
+  - [x] 3.7 Standardize design patterns across all components
+    - Standardize button border-radius values:
+      - Primary buttons: `rounded-xl`
+      - Secondary buttons: `rounded-lg`
+      - Cards: `rounded-[20px]` or `rounded-3xl`
+      - Small elements (badges, tags): `rounded-full` or `rounded-[20px]`
+    - Standardize font sizes using Tailwind's standard scale:
+      - Replace `text-[0.9rem]` with `text-sm`
+      - Replace `text-[0.85rem]` with `text-xs`
+      - Replace `text-[0.95rem]` with `text-sm`
+      - Use: `text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`
+    - Ensure consistent icon sizing:
+      - Inline text icons: `w-4 h-4`
+      - Button icons: `w-5 h-5`
+      - Header icons: `w-6 h-6`
+    - _Expected_Behavior: Consistent visual design across all components_
+    - _Preservation: All functionality remains unchanged_
+    - _Requirements: 1.9, 1.10, 2.9, 2.10_
+
+  - [x] 3.8 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Icons Render as Visual Components
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - Verify all previously documented counterexamples now display visual icons:
+      - Profile achievement badges show visual Star, Trophy, ChefHat icons
+      - AdminDashboard menu items show visual BarChart, Users, Settings icons
+      - Toast notifications show visual CheckCircle, Star icons
+      - Status badges show visual CheckCircle, Hourglass, XCircle icons
+      - Audio controls show visual Play, Pause, SkipForward icons
+      - Wallet section shows visual Wallet icon
+      - Ingredient labels show visual Droplet icons
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.11, 2.12_
+
+  - [x] 3.9 Verify preservation tests still pass
+    - **Property 2: Preservation** - Functional Behavior Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - Verify all functional features still work correctly:
+      - Authentication flow (login, signup, logout)
+      - Recipe viewing and navigation
+      - Favorites management (save/unsave)
+      - Pantry management (add, remove, scan)
+      - Marketplace transactions (purchase, sell)
+      - Recipe upload with images
+      - Admin functions (approve/reject recipes)
+      - Audio assistant text-to-speech
+      - Servings calculator ingredient scaling
+      - Responsive layouts on mobile
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix (no regressions)
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10_
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Run all exploration and preservation tests
+  - Verify all icon string literals have been converted to proper JSX
+  - Verify all visual icons render correctly across all components
+  - Verify all functional features work without regressions
+  - Perform manual visual inspection of all affected components
+  - Test on multiple browsers and screen sizes
+  - Ask the user if questions arise or if additional testing is needed

@@ -1,0 +1,355 @@
+import React, { useState, useRef } from 'react';
+import { ChefHat, CookingPot, Mail } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+
+const Login = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [usePassword, setUsePassword] = useState(false);
+    const navigate = useNavigate();
+
+    // OTP state
+    const [otpSent, setOtpSent] = useState(false);
+    const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [verifying, setVerifying] = useState(false);
+    const [resendCooldown, setResendCooldown] = useState(0);
+    const inputRefs = useRef([]);
+
+    // Password Login
+    const handlePasswordLogin = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+            const { error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
+
+            if (error) throw error;
+            navigate('/');
+            
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Send OTP Email
+    const handleSendOtp = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+            const { error } = await supabase.auth.signInWithOtp({
+                email,
+            });
+
+            if (error) throw error;
+            setOtpSent(true);
+            startResendCooldown();
+            
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Verify OTP
+    const handleVerifyOtp = async () => {
+        const otpCode = otp.join('');
+        if (otpCode.length !== 6) {
+            setError('Please enter the full 6-digit code.');
+            return;
+        }
+
+        setVerifying(true);
+        setError('');
+
+        try {
+            const { data: authData, error } = await supabase.auth.verifyOtp({
+                email,
+                token: otpCode,
+                type: 'email',
+            });
+
+            if (error) throw error;
+
+            // --- AUTO REPAIR: If profile is missing (e.g. from RLS errors earlier or manual deletion), recreate it
+            if (authData?.user) {
+                const { data: profileCheck } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('id', authData.user.id)
+                    .single();
+
+                if (!profileCheck) {
+                    await supabase.from('profiles').upsert([{ 
+                        id: authData.user.id, 
+                        username: email.split('@')[0] 
+                    }]);
+                }
+            }
+
+            navigate('/');
+        } catch (err) {
+            setError('Invalid or expired code. Please try again.');
+            setOtp(['', '', '', '', '', '']);
+            inputRefs.current[0]?.focus();
+        } finally {
+            setVerifying(false);
+        }
+    };
+
+    // Resend cooldown timer
+    const startResendCooldown = () => {
+        setResendCooldown(60);
+        const interval = setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) { clearInterval(interval); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+    };
+
+    // Resend OTP
+    const handleResend = async () => {
+        if (resendCooldown > 0) return;
+        setError('');
+        try {
+            const { error } = await supabase.auth.signInWithOtp({ email });
+            if (error) throw error;
+            startResendCooldown();
+            setOtp(['', '', '', '', '', '']);
+            inputRefs.current[0]?.focus();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // Handle individual OTP digit input
+    const handleOtpChange = (index, value) => {
+        if (!/^\d*$/.test(value)) return; // digits only
+        const newOtp = [...otp];
+        newOtp[index] = value.slice(-1); // only last digit
+        setOtp(newOtp);
+
+        // Auto-advance to next box
+        if (value && index < 5) {
+            inputRefs.current[index + 1]?.focus();
+        }
+
+        // Auto-submit when all 6 filled
+        if (index === 5 && value) {
+            const fullCode = newOtp.join('');
+            if (fullCode.length === 6) {
+                setTimeout(() => handleVerifyOtp(), 100);
+            }
+        }
+    };
+
+    // Handle backspace navigation
+    const handleOtpKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !otp[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    // Handle paste
+    const handlePaste = (e) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+        if (pasted.length === 0) return;
+        const newOtp = [...otp];
+        for (let i = 0; i < 6; i++) {
+            newOtp[i] = pasted[i] || '';
+        }
+        setOtp(newOtp);
+        const lastFilledIndex = Math.min(pasted.length, 5);
+        inputRefs.current[lastFilledIndex]?.focus();
+        if (pasted.length === 6) {
+            setTimeout(() => handleVerifyOtp(), 100);
+        }
+    };
+
+    // ─── OTP VERIFICATION SCREEN ───
+    if (otpSent) {
+        return (
+            <div className="flex justify-center items-center min-h-[80vh] px-[5%] py-8">
+                <div className="flex flex-row w-full max-w-[1000px] bg-white rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] overflow-hidden max-md:flex-col">
+                    
+                    {/* Left Side: Image Panel */}
+                    <div className="flex-1 relative min-h-[500px] max-md:min-h-[250px]">
+                        <img src="/pictures/signin.png" alt="SavorSense" className="absolute inset-0 w-full h-full object-cover" />
+                        <div className="relative z-[2] h-full flex flex-col justify-end p-12 bg-gradient-to-t from-black/80 via-transparent to-transparent text-white">
+                            <h2 className="text-[2rem] mb-2">Almost there!</h2>
+                            <p className="text-base leading-relaxed text-gray-200">We've sent a verification code to your email. Enter it below to complete your login.</p>
+                        </div>
+                    </div>
+
+                    {/* Right Side: OTP Panel */}
+                    <div className="flex-1 p-14 flex flex-col justify-center items-center max-md:p-8">
+                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                            <span className="text-[2rem]"><Mail className="w-8 h-8" /></span>
+                        </div>
+                        <h1 className="text-[1.8rem] text-gray-900 mb-2 text-center">Verify Your Email</h1>
+                        <p className="text-gray-500 mb-2 text-center text-[0.95rem]">
+                            We sent a 6-digit verification code to
+                        </p>
+                        <p className="text-orange-600 font-bold mb-6 text-center">{email}</p>
+
+                        {error && <div className="bg-red-100 text-red-600 p-3 rounded-xl mb-5 text-[0.9rem] text-center w-full">{error}</div>}
+
+                        {/* OTP Input Boxes */}
+                        <div className="flex gap-3 mb-6" onPaste={handlePaste}>
+                            {otp.map((digit, index) => (
+                                <input
+                                    key={index}
+                                    ref={el => inputRefs.current[index] = el}
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={1}
+                                    value={digit}
+                                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                                    className={`w-12 h-14 text-center text-2xl font-bold border-2 rounded-xl outline-none transition-all duration-200 ${
+                                        digit 
+                                            ? 'border-orange-600 bg-orange-50 text-orange-600' 
+                                            : 'border-gray-200 bg-gray-50 text-gray-900'
+                                    } focus:border-orange-600 focus:ring-2 focus:ring-orange-200`}
+                                    autoFocus={index === 0}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Verify Button */}
+                        <button
+                            onClick={handleVerifyOtp}
+                            disabled={verifying || otp.join('').length !== 6}
+                            className="w-full max-w-[320px] p-4 bg-orange-600 text-white border-none rounded-xl text-[1.05rem] font-semibold cursor-pointer transition-colors duration-200 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {verifying ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    Verifying...
+                                </span>
+                            ) : 'Verify & Sign In →'}
+                        </button>
+
+                        {/* Resend */}
+                        <div className="mt-6 text-center text-gray-500 text-[0.9rem]">
+                            {resendCooldown > 0 ? (
+                                <p>Resend code in <span className="text-orange-600 font-bold">{resendCooldown}s</span></p>
+                            ) : (
+                                <p>
+                                    Didn't receive the code?{' '}
+                                    <button onClick={handleResend} className="bg-transparent border-none text-orange-600 cursor-pointer font-semibold underline text-[0.9rem]">
+                                        Resend Code
+                                    </button>
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Back button */}
+                        <button
+                            onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setError(''); }}
+                            className="mt-4 bg-transparent border-none text-gray-400 cursor-pointer text-[0.85rem] hover:text-gray-600"
+                        >
+                            ← Use a different email
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ─── MAIN LOGIN SCREEN ───
+    return (
+        <div className="flex justify-center items-center min-h-[80vh] px-[5%] py-8">
+            <div className="flex flex-row w-full max-w-[1000px] bg-white rounded-3xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] overflow-hidden max-md:flex-col">
+                
+                {/* Left Side: Image Panel */}
+                <div className="flex-1 relative min-h-[500px] max-md:min-h-[250px]">
+                    <img src="/pictures/signin.png" alt="SavorSense" className="absolute inset-0 w-full h-full object-cover" />
+                    <div className="relative z-[2] h-full flex flex-col justify-end p-12 bg-gradient-to-t from-black/80 via-transparent to-transparent text-white">
+                        <h2 className="text-[2rem] mb-2">Your pantry, reimagined.</h2>
+                        <p className="text-base leading-relaxed text-gray-200">Log in to save your favorite Filipino dishes, track your pantry ingredients, and get personalized recipe recommendations.</p>
+                        <h1 className="text-[2rem] mt-2">Welcome Back to SavorSense</h1>
+                    </div>
+                </div>
+
+                {/* Right Side: Form Panel */}
+                <div className="flex-1 p-14 flex flex-col justify-center max-md:p-8">
+                    <div className="text-[2.5rem] mb-2"><ChefHat className="w-6 h-6" /></div>
+                    <h1 className="text-[2rem] text-gray-900 mb-2">Welcome Back</h1>
+                    <p className="text-gray-500 mb-8">{usePassword ? 'Enter your credentials to sign in' : 'Enter your email to receive a verification code'}</p>
+
+                    {error && <div className="bg-red-100 text-red-600 p-3 rounded-xl mb-5 text-[0.9rem] text-center">{error}</div>}
+
+                    <form onSubmit={usePassword ? handlePasswordLogin : handleSendOtp}>
+                        <div className="mb-6">
+                            <div className="flex justify-between mb-2 text-[0.9rem] font-semibold text-gray-900">
+                                <label>Email Address</label>
+                            </div>
+                            <div className="flex items-center border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 transition-colors duration-200 focus-within:border-orange-600">
+                                <input 
+                                    type="email" 
+                                    placeholder="you@example.com" 
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required 
+                                    className="border-none bg-transparent outline-none w-full text-base text-gray-900"
+                                />
+                            </div>
+                        </div>
+
+                        {usePassword && (
+                            <div className="mb-6">
+                                <div className="flex justify-between mb-2 text-[0.9rem] font-semibold text-gray-900">
+                                    <label>Password</label>
+                                </div>
+                                <div className="flex items-center border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 transition-colors duration-200 focus-within:border-orange-600">
+                                    <input 
+                                        type="password" 
+                                        placeholder="••••••••" 
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required 
+                                        className="border-none bg-transparent outline-none w-full text-base text-gray-900"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <button type="submit" className="w-full p-4 bg-orange-600 text-white border-none rounded-xl text-[1.1rem] font-semibold cursor-pointer mt-4 transition-colors duration-200 hover:bg-orange-700 disabled:opacity-50" disabled={loading}>
+                            {loading ? 'Please wait...' : (usePassword ? 'Sign In →' : 'Send Verification Code →')}
+                        </button>
+                    </form>
+
+                    <div className="mt-[15px] text-center text-gray-500">
+                        <button 
+                            onClick={() => setUsePassword(!usePassword)}
+                            className="bg-transparent border-none text-orange-600 cursor-pointer underline text-[0.9rem]"
+                        >
+                            {usePassword ? 'Use Email Verification Instead' : 'Use Password Instead'}
+                        </button>
+                    </div>
+
+                    <div className="mt-8 text-center text-gray-500">
+                        Don't have an account? <Link to="/signup" className="text-orange-600 font-semibold no-underline hover:underline">Sign Up</Link>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    );
+};
+
+export default Login;
