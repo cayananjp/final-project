@@ -1,18 +1,16 @@
 version: 1
-applications:
-  - appRoot: FINALS-main
-    frontend:
-      phases:
-        preBuild:
-          commands:
-            - npm install --legacy-peer-deps
-        build:
-          commands:
-            - npm run build
-      artifacts:
-        baseDirectory: build
-        files:
-          - '**/*'
-      cache:
-        paths:
-          - node_modules/**/*
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - cd FINALS-main && npm install --legacy-peer-deps
+    build:
+      commands:
+        - cd FINALS-main && npm run build
+  artifacts:
+    baseDirectory: FINALS-main/build
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - FINALS-main/node_modules/**/*
