@@ -7,7 +7,12 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 const app = express();
-app.use(cors());
+
+// UPDATE: Added your AWS Amplify link so nobody else can hijack your API!
+app.use(cors({
+    origin: ['https://main.d2ks3kh1klz0ua.amplifyapp.com', 'http://localhost:3000'],
+    methods: ['GET', 'POST']
+}));
 app.use(express.json());
 
 // Setup file uploads
@@ -107,5 +112,6 @@ app.post('/api/scan-ingredients', upload.single('image'), async (req, res) => {
     }
 });
 
-const PORT = 5000;
-app.listen(PORT, () => console.log(`🚀 SavorSense Backend (Gemini AI): http://localhost:${PORT}`));
+// UPDATE: Dynamic Port for Cloud Deployment!
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 SavorSense Backend running on port ${PORT}`));
