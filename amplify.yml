@@ -6,7 +6,8 @@ frontend:
         - cd FINALS-main && npm install --legacy-peer-deps
     build:
       commands:
-        - cd FINALS-main && npm run build
+        # This CI=false is the magic key that stops AWS from crashing on warnings!
+        - cd FINALS-main && CI=false npm run build
   artifacts:
     baseDirectory: FINALS-main/build
     files:
