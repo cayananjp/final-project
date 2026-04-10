@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Check, CheckCircle, Clock, Flame, Mic, Search, Trash2, XCircle } from 'lucide-react';
+import { Camera, Check, Clock, Flame, Trash2 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { RECIPES } from '../data/recipes'; 
@@ -101,7 +101,6 @@ const Pantry = () => {
         }
     };
 
-    // Clear all ingredients
     const clearAllIngredients = async () => {
         if (!window.confirm('Are you sure you want to remove all ingredients?')) return;
         const { data: { user } } = await supabase.auth.getUser();
@@ -131,8 +130,9 @@ const Pantry = () => {
         formData.append('image', file);
         
         try {
-            const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
-            console.log('🔗 Backend URL:', backendUrl);
+            // FIXED: Using your live Render URL for the cloud deployment
+            const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://savorsense-backend-uyx0.onrender.com';
+            console.log('🔗 Connecting to Backend:', backendUrl);
             
             const response = await fetch(`${backendUrl}/api/scan-ingredients`, {
                 method: 'POST',
@@ -140,29 +140,18 @@ const Pantry = () => {
             });
             
             console.log('📡 Response status:', response.status);
-            
             const data = await response.json();
-            console.log('📦 Response data:', data);
             
             if (data.success && data.ingredients && data.ingredients.length > 0) {
                 await addMultipleIngredients(data.ingredients);
-                await logTransaction('scan_ingredients', { 
-                    ingredients: data.ingredients
-                });
-                
-                setStatus(`✓ Found ${data.ingredients.length} ingredient${data.ingredients.length !== 1 ? 's' : ''}! Added to your pantry.`);
+                await logTransaction('scan_ingredients', { ingredients: data.ingredients });
+                setStatus(`✓ Found ${data.ingredients.length} items! Added to pantry.`);
             } else {
-                setStatus(data.error || "No food ingredients detected. Please try a different photo with visible ingredients.");
+                setStatus(data.error || "No food ingredients detected. Try a clearer photo.");
             }
         } catch (error) {
             console.error("❌ Scan error:", error);
-            
-            // Check if it's a network error
-            if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                setStatus("❌ Unable to connect to scanning service. Please ensure the backend server is running.");
-            } else {
-                setStatus("❌ Scanning failed. Please try again.");
-            }
+            setStatus("❌ Unable to connect to scanning service. Check if backend is live.");
         } finally {
             setIsScanning(false);
             e.target.value = null; 
@@ -189,72 +178,68 @@ const Pantry = () => {
 
     if (loading) {
         return (
-            <div className="flex justify-center items-center h-screen">
+            <div className="flex justify-center items-center h-screen font-semibold text-orange-600">
                 Loading your pantry...
             </div>
         );
     }
 
     return (
-        <div className="flex max-w-[1400px] mx-auto p-8 gap-8 items-start max-[900px]:flex-col">
+        <div className="flex max-w-[1400px] mx-auto p-8 gap-8 items-start max-[900px]:flex-col bg-gray-50 min-h-screen">
             {/* Sidebar */}
             <aside className="w-80 shrink-0 sticky top-8 max-[900px]:w-full max-[900px]:static">
                 <div className="bg-white p-6 rounded-[20px] shadow-[0_4px_15px_rgba(0,0,0,0.05)] border border-gray-200">
-
-                    {/* Header with Clear All */}
                     <div className="flex justify-between items-center mb-6">
-                        <h2 className="m-0 text-xl font-bold">Your Pantry</h2>
+                        <h2 className="m-0 text-xl font-bold text-gray-800">Your Pantry</h2>
                         {ingredients.length > 0 && (
                             <button
                                 onClick={clearAllIngredients}
-                                className="bg-red-100 text-red-600 border-none px-3 py-1.5 rounded-lg cursor-pointer text-xs font-semibold"
+                                className="bg-red-50 text-red-600 border-none px-3 py-1.5 rounded-lg cursor-pointer text-xs font-semibold hover:bg-red-100 transition-colors"
                             >
-                                <Trash2 className="w-4 h-4 inline-block" /> Clear All
+                                <Trash2 className="w-4 h-4 inline-block mr-1" /> Clear All
                             </button>
                         )}
                     </div>
 
-                    {/* Photo Scanner */}
-                    <div className="mb-5 p-[15px] bg-orange-50 border-2 border-dashed border-orange-400 rounded-xl text-center">
-                        <h3 className="text-sm text-orange-900 mb-2"><Camera className="w-6 h-6 inline-block" /> PHOTO SCANNER</h3>
+                    {/* AI Photo Scanner */}
+                    <div className="mb-5 p-4 bg-orange-50 border-2 border-dashed border-orange-300 rounded-xl text-center">
+                        <h3 className="text-xs font-bold text-orange-800 mb-2 tracking-widest uppercase">
+                            <Camera className="w-4 h-4 inline-block mr-1" /> AI Ingredient Scanner
+                        </h3>
                         <input type="file" id="photo-input" accept="image/*" className="hidden" onChange={handleAiScan} disabled={isScanning} />
                         <button 
                             type="button" 
                             onClick={() => document.getElementById('photo-input').click()}
                             disabled={isScanning}
-                            className={`${isScanning ? 'bg-gray-300 cursor-not-allowed' : 'bg-orange-400 cursor-pointer'} text-white border-none p-3 rounded-lg w-full font-bold`}
+                            className={`${isScanning ? 'bg-gray-400' : 'bg-orange-500 hover:bg-orange-600'} text-white border-none p-3 rounded-lg w-full font-bold transition-all shadow-sm cursor-pointer`}
                         >
-                            {isScanning ? "Scanning..." : "Upload / Take Photo"}
+                            {isScanning ? "Analyzing Image..." : "Scan Groceries"}
                         </button>
-                        <div className="text-xs mt-2.5 text-orange-900 font-medium">{status}</div>
+                        <div className="text-[10px] mt-2 text-orange-700 font-medium italic">{status}</div>
                     </div>
 
-                    {/* Add Ingredient Input */}
-                    <div className="flex items-center mb-6 relative">
+                    {/* Manual Input */}
+                    <div className="flex items-center mb-6">
                         <input 
                             type="text" 
-                            placeholder="Add ingredient..." 
+                            placeholder="Add manually..." 
                             value={inputValue} 
                             onChange={(e) => setInputValue(e.target.value)} 
                             onKeyDown={(e) => e.key === 'Enter' && addIngredient()} 
-                            className="flex-1 py-3 pl-4 pr-4 border border-gray-200 rounded-[10px] text-[0.95rem] outline-none transition-colors duration-200 focus:border-orange-600"
+                            className="flex-1 py-2.5 px-4 border border-gray-200 rounded-l-lg text-sm outline-none focus:border-orange-500"
                         />
-                        <button className="bg-orange-600 text-white border-none w-[42px] h-[42px] rounded-[10px] ml-2 text-2xl cursor-pointer transition-colors duration-200 flex items-center justify-center hover:bg-orange-700" onClick={addIngredient}>+</button>
+                        <button className="bg-orange-500 text-white border-none px-4 py-2.5 rounded-r-lg font-bold cursor-pointer hover:bg-orange-600" onClick={addIngredient}>+</button>
                     </div>
                     
-                    {/* Ingredient Tags */}
+                    {/* Tags */}
                     <div className="flex flex-wrap gap-2">
                         {ingredients.map((item, idx) => (
-                            <span key={idx} className="bg-orange-50 text-orange-600 px-3 py-1.5 rounded-[20px] text-sm font-semibold flex items-center gap-1.5">
+                            <span key={idx} className="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border border-gray-200">
                                 {item} 
-                                <span className="cursor-pointer text-lg leading-none hover:text-orange-700" onClick={() => removeIngredient(item)}>×</span>
+                                <button className="text-gray-400 hover:text-red-500 font-bold border-none bg-transparent p-0 leading-none cursor-pointer" onClick={() => removeIngredient(item)}>×</button>
                             </span>
                         ))}
-                        {ingredients.length === 0 && (
-                            <span className="text-gray-400 text-[0.9rem]">No ingredients yet. Add some!</span>
-                        )}
                     </div>
-
                 </div>
             </aside>
 
@@ -262,39 +247,37 @@ const Pantry = () => {
             <main className="flex-1 min-w-0">
                 <div className="flex justify-between items-end mb-8">
                     <div>
-                        <h1 className="text-[2rem] text-gray-900 mb-1">Suggested Dishes</h1>
-                        <p className="text-gray-500 text-base">Based on your {ingredients.length} pantry items</p>
+                        <h1 className="text-3xl font-extrabold text-gray-900 mb-1">Cook with what you have</h1>
+                        <p className="text-gray-500">Matching your {ingredients.length} items with our recipe database</p>
                     </div>
-                    <div className="bg-orange-50 text-orange-600 px-4 py-1.5 rounded-[20px] text-[0.9rem] font-semibold">{filteredRecipes.length} recipes found</div>
+                    <div className="bg-green-100 text-green-700 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
+                        {filteredRecipes.length} Matches Found
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-6">
                     {filteredRecipes.length > 0 ? (
                         filteredRecipes.map((recipe) => (
-                            <div key={recipe.id} className="bg-white rounded-[20px] overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.05)] border border-gray-200 transition-all duration-200 cursor-pointer hover:-translate-y-[5px] hover:shadow-[0_10px_25px_rgba(0,0,0,0.1)]" onClick={() => navigate(`/recipe/${recipe.id}`, { state: { recipeData: recipe } })}>
-                                <div className="relative h-[200px]">
+                            <div key={recipe.id} className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 transition-all hover:shadow-xl hover:-translate-y-1 cursor-pointer" onClick={() => navigate(`/recipe/${recipe.id}`, { state: { recipeData: recipe } })}>
+                                <div className="relative h-48">
                                     <img src={recipe.image} alt={recipe.title} className="w-full h-full object-cover" />
-                                    <div className={`absolute top-2.5 left-2.5 text-white px-2.5 py-1 rounded-md text-xs font-bold shadow-[0_2px_4px_rgba(0,0,0,0.2)] ${recipe.matchPercentage === 100 ? 'bg-green-500' : 'bg-orange-500'}`}>
-                                        {recipe.matchPercentage === 100 ? (
-                                            <><Check className="w-4 h-4 inline-block" /> 100% Match</>
-                                        ) : (
-                                            `${recipe.matchPercentage}% Match`
-                                        )}
+                                    <div className={`absolute top-4 left-4 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${recipe.matchPercentage === 100 ? 'bg-green-500' : 'bg-orange-500'}`}>
+                                        {recipe.matchPercentage}% Match
                                     </div>
                                 </div>
                                 <div className="p-6">
-                                    <h3 className="text-xl text-gray-900 mb-2">{recipe.title}</h3>
-                                    <p className="text-gray-500 text-[0.9rem] leading-relaxed mb-6">{recipe.description}</p>
-                                    <div className="flex gap-6 text-sm text-gray-500">
-                                        <span><Clock className="w-4 h-4 inline-block" /> {recipe.time}</span>
-                                        <span className="text-orange-600 font-semibold"><Flame className="w-4 h-4 inline-block" /> {recipe.cuisine}</span>
+                                    <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1">{recipe.title}</h3>
+                                    <p className="text-gray-500 text-sm mb-4 line-clamp-2">{recipe.description}</p>
+                                    <div className="flex justify-between items-center text-xs text-gray-400 font-bold">
+                                        <span><Clock className="w-3.5 h-3.5 inline mr-1" /> {recipe.time}</span>
+                                        <span className="text-orange-500 underline uppercase">{recipe.cuisine}</span>
                                     </div>
                                 </div>
                             </div>
                         ))
                     ) : (
-                        <div className="text-center p-8 text-gray-500 col-span-full">
-                            <p>No matches found. Try adding more ingredients!</p>
+                        <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-300 col-span-full">
+                            <p className="text-gray-400 font-medium">No recipes match your ingredients yet. Try scanning more items!</p>
                         </div>
                     )}
                 </div>
