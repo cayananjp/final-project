@@ -61,7 +61,7 @@ const Home = () => {
 
             try {
                 // Use your Render backend to extract ingredients from the raw speech
-                const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://savorsense-backend-uyx0.onrender.com';
+                const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://savorsense-backend-uyx0.onrender.com';const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://savorsense-backend-uyx0.onrender.com';
                 
                 const response = await fetch(`${backendUrl}/api/process-voice`, {
                     method: 'POST',

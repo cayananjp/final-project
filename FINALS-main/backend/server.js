@@ -22,16 +22,16 @@ const upload = multer({ dest: 'uploads/' });
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 1. Health check endpoint (for testing if server is awake)
+// 1. Health check endpoint
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+    res.json({
+        status: 'ok',
         message: 'SavorSense Backend is running',
-        geminiConfigured: !!process.env.GEMINI_API_KEY 
+        geminiConfigured: !!process.env.GEMINI_API_KEY
     });
 });
 
-// 2. Image Scanning Endpoint (Used by Pantry.js)
+// 2. Image Scanning Endpoint (Updated to Gemini 3 Flash)
 app.post('/api/scan-ingredients', upload.single('image'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, error: "No image received." });
@@ -41,7 +41,8 @@ app.post('/api/scan-ingredients', upload.single('image'), async (req, res) => {
         const imageData = fs.readFileSync(req.file.path);
         const base64Image = imageData.toString('base64');
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Changed model to gemini-3-flash
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash" });
         const prompt = "Identify the raw food ingredients in this image. Return ONLY a comma-separated list, all lowercase. If no food is found, return 'none'.";
 
         const result = await model.generateContent([
@@ -57,8 +58,7 @@ app.post('/api/scan-ingredients', upload.single('image'), async (req, res) => {
         const response = await result.response;
         const text = response.text();
         
-        // Clean up: Delete image from server after processing
-        fs.unlinkSync(req.file.path); 
+        fs.unlinkSync(req.file.path);
 
         const ingredientsArray = text.split(',')
             .map(item => item.trim().toLowerCase())
@@ -69,19 +69,21 @@ app.post('/api/scan-ingredients', upload.single('image'), async (req, res) => {
 
     } catch (error) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error("❌ Image API Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// 3. Voice Processing Endpoint (Used by Home.js)
+// 3. Voice Processing Endpoint (Updated to Gemini 3 Flash)
 app.post('/api/process-voice', async (req, res) => {
     try {
         const { text } = req.body;
         console.log(`🎤 Processing Voice Text: "${text}"`);
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const prompt = `From the following spoken text, extract ONLY the food ingredients: "${text}". 
-        Return them as a simple comma-separated list in lowercase. 
+        // Changed model to gemini-3-flash
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash" });
+        const prompt = `From the following spoken text, extract ONLY the food ingredients: "${text}".
+        Return them as a simple comma-separated list in lowercase.
         If no food is mentioned, return 'none'.`;
 
         const result = await model.generateContent(prompt);
@@ -100,6 +102,5 @@ app.post('/api/process-voice', async (req, res) => {
     }
 });
 
-// Use Render's dynamic port or default to 5000 for local testing
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server live on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server live on port ${PORT} using Gemini 3 Flash`));
